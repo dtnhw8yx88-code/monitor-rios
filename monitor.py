@@ -137,6 +137,8 @@ def enviar_email(config, asunto, cuerpo_texto):
 
 
 def notificacion_macos(titulo, mensaje):
+    if sys.platform != "darwin":
+        return
     script = f'display notification "{mensaje}" with title "{titulo}" sound name "Default"'
     subprocess.run(["osascript", "-e", script], check=False)
 
@@ -145,7 +147,10 @@ def cargar_config():
     if not CONFIG_FILE.exists():
         raise RuntimeError(f"Falta {CONFIG_FILE}")
     with open(CONFIG_FILE) as f:
-        return json.load(f)
+        config = json.load(f)
+    config["gmail_usuario"] = config["gmail_usuario"].strip()
+    config["gmail_password"] = config["gmail_password"].strip()
+    return config
 
 
 def main():
