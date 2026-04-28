@@ -1,0 +1,54 @@
+name: Monitor Rios
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # cada hora
+  workflow_dispatch:        # permite correrlo manualmente
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: pip install requests beautifulsoup4
+
+      - name: Crear config.json
+        run: |
+          echo '{
+            "gmail_usuario": "${{ secrets.GMAIL_USUARIO }}",
+            "gmail_password": "${{ secrets.GMAIL_PASSWORD }}"
+          }' > config.json
+
+      - name: Restaurar ultimo registro
+        uses: actions/cache@v4
+        with:
+          path: |
+            ultimo_bonete.json
+            ultimo_tostado.json
+            ultimo_calchaqui.json
+            ultimo_piedras.json
+          key: ultimos-registros-${{ github.run_id }}
+          restore-keys: ultimos-registros-
+
+      - name: Correr monitor
+        run: python monitor.py
+
+      - name: Guardar ultimo registro
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            ultimo_bonete.json
+            ultimo_tostado.json
+            ultimo_calchaqui.json
+            ultimo_piedras.json
+          key: ultimos-registros-${{ github.run_id }}

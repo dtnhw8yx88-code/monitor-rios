@@ -1,0 +1,6 @@
+config.json
+historico_*.csv
+monitor.log
+monitor_error.log
+com.frigorifico.riosalado.plist
+instalar.sh
