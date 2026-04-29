@@ -9,10 +9,12 @@ import csv
 import smtplib
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
+
+ARGENTINA_TZ = timezone(timedelta(hours=-3))
 
 import requests
 
@@ -40,7 +42,7 @@ API_WFS   = "https://aswe.santafe.gov.ar/idesf/geoserver/RecursosHidricos/wfs/wf
 
 
 def fetch_datos(ids):
-    fecha = datetime.now().strftime("%Y-%m-%d")
+    fecha = datetime.now(ARGENTINA_TZ).strftime("%Y-%m-%d")
     session = requests.Session()
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -124,7 +126,7 @@ def enviar_email(config, asunto, cuerpo_texto):
         + cuerpo_texto
         + "\n----------------------------------------\n"
         f"Fuente: Sec. Recursos Hidricos Santa Fe\n"
-        f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
+        f"Generado: {datetime.now(ARGENTINA_TZ).strftime('%d/%m/%Y %H:%M')}\n"
     )
 
     msg.attach(MIMEText(cuerpo_completo, "plain", "utf-8"))
@@ -154,7 +156,7 @@ def cargar_config():
 
 
 def main():
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Monitor Rios - Ganadera Fortines")
+    print(f"[{datetime.now(ARGENTINA_TZ).strftime('%Y-%m-%d %H:%M:%S')}] Monitor Rios - Ganadera Fortines")
 
     try:
         config = cargar_config()
@@ -194,7 +196,7 @@ def main():
 
         datos = {
             "estacion":   nombre,
-            "fecha":      datetime.now().strftime("%d/%m/%Y"),
+            "fecha":      datetime.now(ARGENTINA_TZ).strftime("%d/%m/%Y"),
             "altura_m":   altura,
             "variacion_m": variacion,
             "estado":     estado,
@@ -231,7 +233,7 @@ def main():
         for d in datos_validos:
             cuerpo += construir_bloque(d) + "\n"
 
-        fecha_fmt = datetime.now().strftime("%d/%m/%Y")
+        fecha_fmt = datetime.now(ARGENTINA_TZ).strftime("%d/%m/%Y")
         if hay_variacion_brusca:
             asunto = f"GF | Rios {fecha_fmt} | VARIACION BRUSCA {resumen_brusca.strip()}"
         elif hay_alerta:
