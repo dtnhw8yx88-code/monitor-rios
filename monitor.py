@@ -275,10 +275,7 @@ def main():
             print(f"\nERROR al enviar mail: {e}", file=sys.stderr)
             notificacion_macos("Rios - Error mail", str(e))
 
-        texto_wp = asunto + "\n"
-        for d in datos_validos:
-            texto_wp += f"{d['estacion'].split(' (')[0]}: {d['altura_m']:.2f}m {d['estado']}\n"
-        enviar_whatsapp(config, texto_wp.strip())
+        enviar_whatsapp(config, asunto + "\n\n" + cuerpo)
     else:
         print("\nSin datos nuevos, no se envia mail.")
 
