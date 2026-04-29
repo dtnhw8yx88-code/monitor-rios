@@ -42,7 +42,7 @@ API_WFS   = "https://aswe.santafe.gov.ar/idesf/geoserver/RecursosHidricos/wfs/wf
 
 
 def fetch_datos(ids):
-    fecha = datetime.now(ARGENTINA_TZ).strftime("%Y-%m-%d")
+    now_arg = datetime.now(ARGENTINA_TZ)
     session = requests.Session()
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -51,24 +51,31 @@ def fetch_datos(ids):
     session.get(API_PAGE, timeout=15)
 
     ids_str = ",".join(str(i) for i in ids)
-    inner = (
-        f"{API_WFS}?service=WFS&version=1.0.0&request=GetFeature"
-        f"&typeName=diferencia_alturas&maxFeatures=100"
-        f"&outputFormat=application/json"
-        f"&CQL_FILTER=id_altura+IN+({ids_str})"
-        f"&viewparams=fecha:{fecha}"
-    )
-    url = API_PROXY + requests.utils.quote(inner, safe="")
-    resp = session.get(url, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
 
-    por_id = {}
-    for f in data.get("features", []):
-        p = f["properties"]
-        por_id[p["id_altura"]] = p
+    # Intenta hoy, si no hay datos intenta ayer (la API publica con demora)
+    for delta in [0, -1]:
+        fecha = (now_arg + timedelta(days=delta)).strftime("%Y-%m-%d")
+        inner = (
+            f"{API_WFS}?service=WFS&version=1.0.0&request=GetFeature"
+            f"&typeName=diferencia_alturas&maxFeatures=100"
+            f"&outputFormat=application/json"
+            f"&CQL_FILTER=id_altura+IN+({ids_str})"
+            f"&viewparams=fecha:{fecha}"
+        )
+        url = API_PROXY + requests.utils.quote(inner, safe="")
+        resp = session.get(url, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
 
-    return por_id, fecha
+        por_id = {}
+        for f in data.get("features", []):
+            p = f["properties"]
+            por_id[p["id_altura"]] = p
+
+        if por_id:
+            break
+
+    return por_id
 
 
 def cargar_ultimo(path):
@@ -166,7 +173,7 @@ def main():
 
     ids = [e["id"] for e in ESTACIONES]
     try:
-        por_id, fecha_hoy = fetch_datos(ids)
+        por_id = fetch_datos(ids)
     except Exception as e:
         print(f"ERROR al consultar API: {e}", file=sys.stderr)
         notificacion_macos("Monitor Rios - Error", str(e))
@@ -194,9 +201,16 @@ def main():
         alerta_api = props.get("alerta_hidrologica", "")
         estado    = "ALERTA" if "alerta" in alerta_api.lower() else "NORMAL"
 
+        # Usar la fecha que devuelve la API, no el reloj del servidor
+        api_fecha_raw = props.get("fecha", "").rstrip("Z")
+        try:
+            fecha_dato = datetime.strptime(api_fecha_raw, "%Y-%m-%d").strftime("%d/%m/%Y")
+        except ValueError:
+            fecha_dato = datetime.now(ARGENTINA_TZ).strftime("%d/%m/%Y")
+
         datos = {
             "estacion":   nombre,
-            "fecha":      datetime.now(ARGENTINA_TZ).strftime("%d/%m/%Y"),
+            "fecha":      fecha_dato,
             "altura_m":   altura,
             "variacion_m": variacion,
             "estado":     estado,
@@ -233,7 +247,7 @@ def main():
         for d in datos_validos:
             cuerpo += construir_bloque(d) + "\n"
 
-        fecha_fmt = datetime.now(ARGENTINA_TZ).strftime("%d/%m/%Y")
+        fecha_fmt = datos_validos[0]["fecha"] if datos_validos else datetime.now(ARGENTINA_TZ).strftime("%d/%m/%Y")
         if hay_variacion_brusca:
             asunto = f"GF | Rios {fecha_fmt} | VARIACION BRUSCA {resumen_brusca.strip()}"
         elif hay_alerta:
