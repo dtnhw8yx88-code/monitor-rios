@@ -28,12 +28,12 @@ DESTINATARIOS = [
     "gonzaloluna@ganaderafortines.com",
 ]
 
-# Orden del correo
+# Orden del correo — "clave" es substring del nombre en la API
 ESTACIONES = [
-    {"nombre": "El Bonete",          "id": 31102, "archivo_ultimo": BASE_DIR / "ultimo_bonete.json",   "archivo_historico": BASE_DIR / "historico_bonete.csv"},
-    {"nombre": "Tostado (R.N. 95)",  "id": 31094, "archivo_ultimo": BASE_DIR / "ultimo_tostado.json",  "archivo_historico": BASE_DIR / "historico_tostado.csv"},
-    {"nombre": "Calchaquí (R.P. 38)","id": 31101, "archivo_ultimo": BASE_DIR / "ultimo_calchaqui.json","archivo_historico": BASE_DIR / "historico_calchaqui.csv"},
-    {"nombre": "Paso de las Piedras","id": 31095, "archivo_ultimo": BASE_DIR / "ultimo_piedras.json",  "archivo_historico": BASE_DIR / "historico_piedras.csv"},
+    {"nombre": "El Bonete",          "clave": "bonete",   "archivo_ultimo": BASE_DIR / "ultimo_bonete.json",   "archivo_historico": BASE_DIR / "historico_bonete.csv"},
+    {"nombre": "Tostado (R.N. 95)",  "clave": "tostado",  "archivo_ultimo": BASE_DIR / "ultimo_tostado.json",  "archivo_historico": BASE_DIR / "historico_tostado.csv"},
+    {"nombre": "Calchaquí (R.P. 38)","clave": "calchaqui","archivo_ultimo": BASE_DIR / "ultimo_calchaqui.json","archivo_historico": BASE_DIR / "historico_calchaqui.csv"},
+    {"nombre": "Paso de las Piedras","clave": "piedras",  "archivo_ultimo": BASE_DIR / "ultimo_piedras.json",  "archivo_historico": BASE_DIR / "historico_piedras.csv"},
 ]
 
 API_PAGE  = "https://www.santafe.gob.ar/idesf/vis-pre/?user=rec_hidricos_alturas"
@@ -41,8 +41,7 @@ API_PROXY = "https://www.santafe.gob.ar/idesf/vis-pre/proxyPTRxml.php?url="
 API_WFS   = "https://aswe.santafe.gov.ar/idesf/geoserver/RecursosHidricos/wfs/wfs"
 
 
-def fetch_datos(ids):
-    now_arg = datetime.now(ARGENTINA_TZ)
+def fetch_datos(claves):
     session = requests.Session()
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -50,32 +49,29 @@ def fetch_datos(ids):
     })
     session.get(API_PAGE, timeout=15)
 
-    ids_str = ",".join(str(i) for i in ids)
+    inner = (
+        f"{API_WFS}?service=WFS&version=1.0.0&request=GetFeature"
+        f"&typeName=diferencia_alturas&maxFeatures=200"
+        f"&outputFormat=application/json"
+    )
+    url = API_PROXY + requests.utils.quote(inner, safe="")
+    resp = session.get(url, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
 
-    # Intenta hoy, si no hay datos intenta ayer (la API publica con demora)
-    for delta in [0, -1]:
-        fecha = (now_arg + timedelta(days=delta)).strftime("%Y-%m-%d")
-        inner = (
-            f"{API_WFS}?service=WFS&version=1.0.0&request=GetFeature"
-            f"&typeName=diferencia_alturas&maxFeatures=100"
-            f"&outputFormat=application/json"
-            f"&CQL_FILTER=id_altura+IN+({ids_str})"
-            f"&viewparams=fecha:{fecha}"
-        )
-        url = API_PROXY + requests.utils.quote(inner, safe="")
-        resp = session.get(url, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
+    # Buscar por nombre (substring) para evitar dependencia de IDs
+    por_clave = {}
+    for f in data.get("features", []):
+        p = f["properties"]
+        nombre_api = p.get("nombre", "").lower()
+        # Normalizar: quitar tildes para comparar
+        nombre_norm = nombre_api.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u")
+        for clave in claves:
+            if clave in nombre_norm:
+                por_clave[clave] = p
+                break
 
-        por_id = {}
-        for f in data.get("features", []):
-            p = f["properties"]
-            por_id[p["id_altura"]] = p
-
-        if por_id:
-            break
-
-    return por_id
+    return por_clave
 
 
 def cargar_ultimo(path):
@@ -171,9 +167,9 @@ def main():
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
-    ids = [e["id"] for e in ESTACIONES]
+    claves = [e["clave"] for e in ESTACIONES]
     try:
-        por_id = fetch_datos(ids)
+        por_clave = fetch_datos(claves)
     except Exception as e:
         print(f"ERROR al consultar API: {e}", file=sys.stderr)
         notificacion_macos("Monitor Rios - Error", str(e))
@@ -187,7 +183,7 @@ def main():
 
     for estacion in ESTACIONES:
         nombre = estacion["nombre"]
-        props  = por_id.get(estacion["id"])
+        props  = por_clave.get(estacion["clave"])
         print(f"\n--- {nombre} ---")
 
         if not props or props.get("altura") is None:
