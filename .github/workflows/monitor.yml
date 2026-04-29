@@ -25,10 +25,17 @@ jobs:
         env:
           GMAIL_USUARIO: ${{ secrets.GMAIL_USUARIO }}
           GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+          CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
+          CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
         run: |
           python3 -c "
           import json, os
-          config = {'gmail_usuario': os.environ['GMAIL_USUARIO'], 'gmail_password': os.environ['GMAIL_PASSWORD']}
+          config = {
+            'gmail_usuario': os.environ['GMAIL_USUARIO'],
+            'gmail_password': os.environ['GMAIL_PASSWORD'],
+            'callmebot_phone': os.environ.get('CALLMEBOT_PHONE', ''),
+            'callmebot_apikey': os.environ.get('CALLMEBOT_APIKEY', ''),
+          }
           with open('config.json', 'w') as f:
               json.dump(config, f)
           "

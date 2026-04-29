@@ -141,6 +141,22 @@ def enviar_email(config, asunto, cuerpo_texto):
         servidor.sendmail(remitente, DESTINATARIOS, msg.as_string())
 
 
+def enviar_whatsapp(config, texto):
+    phone  = config.get("callmebot_phone", "")
+    apikey = config.get("callmebot_apikey", "")
+    if not phone or not apikey:
+        return
+    try:
+        resp = requests.get(
+            "https://api.callmebot.com/whatsapp.php",
+            params={"phone": phone, "text": texto, "apikey": apikey},
+            timeout=15,
+        )
+        print(f"WhatsApp enviado: {resp.status_code}")
+    except Exception as e:
+        print(f"ERROR WhatsApp: {e}", file=sys.stderr)
+
+
 def notificacion_macos(titulo, mensaje):
     if sys.platform != "darwin":
         return
@@ -258,6 +274,11 @@ def main():
         except Exception as e:
             print(f"\nERROR al enviar mail: {e}", file=sys.stderr)
             notificacion_macos("Rios - Error mail", str(e))
+
+        texto_wp = asunto + "\n"
+        for d in datos_validos:
+            texto_wp += f"{d['estacion'].split(' (')[0]}: {d['altura_m']:.2f}m {d['estado']}\n"
+        enviar_whatsapp(config, texto_wp.strip())
     else:
         print("\nSin datos nuevos, no se envia mail.")
 
