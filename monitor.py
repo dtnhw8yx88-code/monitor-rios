@@ -141,6 +141,21 @@ def enviar_email(config, asunto, cuerpo_texto):
         servidor.sendmail(remitente, DESTINATARIOS, msg.as_string())
 
 
+def publicar_facebook(config, texto):
+    page_token = config.get("facebook_page_token", "")
+    if not page_token:
+        return
+    try:
+        resp = requests.post(
+            "https://graph.facebook.com/v25.0/1147087285146142/feed",
+            data={"message": texto, "access_token": page_token},
+            timeout=15,
+        )
+        print(f"Facebook publicado: {resp.status_code}")
+    except Exception as e:
+        print(f"ERROR Facebook: {e}", file=sys.stderr)
+
+
 def enviar_whatsapp(config, texto):
     phone  = config.get("callmebot_phone", "")
     apikey = config.get("callmebot_apikey", "")
@@ -276,6 +291,7 @@ def main():
             notificacion_macos("Rios - Error mail", str(e))
 
         enviar_whatsapp(config, asunto + "\n\n" + cuerpo)
+        publicar_facebook(config, asunto + "\n\n" + cuerpo)
     else:
         print("\nSin datos nuevos, no se envia mail.")
 
