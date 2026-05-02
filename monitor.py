@@ -123,9 +123,8 @@ def enviar_email(config, asunto, cuerpo_texto):
     msg["To"]      = ", ".join(DESTINATARIOS)
 
     cuerpo_completo = (
-        "Ganadera Fortines S.A.\n"
-        "Informe de los Rios\n"
-        "----------------------------------------\n\n"
+        "-Informe altura de los Rios-\n"
+        "Fundacion Humedales y Pastizales.\n\n"
         + cuerpo_texto
         + "\n----------------------------------------\n"
         f"Fuente: Sec. Recursos Hidricos Santa Fe\n"
@@ -290,8 +289,9 @@ def main():
             print(f"\nERROR al enviar mail: {e}", file=sys.stderr)
             notificacion_macos("Rios - Error mail", str(e))
 
-        enviar_whatsapp(config, asunto + "\n\n" + cuerpo)
-        publicar_facebook(config, asunto + "\n\n" + cuerpo)
+        mensaje = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + cuerpo
+        enviar_whatsapp(config, mensaje)
+        publicar_facebook(config, mensaje)
     else:
         print("\nSin datos nuevos, no se envia mail.")
 
