@@ -30,11 +30,13 @@ DESTINATARIOS = [
 
 # Orden del correo — "clave" es substring del nombre en la API
 ESTACIONES = [
-    {"nombre": "El Bonete",          "clave": "bonete",   "archivo_ultimo": BASE_DIR / "ultimo_bonete.json",   "archivo_historico": BASE_DIR / "historico_bonete.csv"},
-    {"nombre": "Tostado (R.N. 95)",  "clave": "tostado",  "archivo_ultimo": BASE_DIR / "ultimo_tostado.json",  "archivo_historico": BASE_DIR / "historico_tostado.csv"},
-    {"nombre": "Calchaquí (R.P. 38)","clave": "calchaqui","archivo_ultimo": BASE_DIR / "ultimo_calchaqui.json","archivo_historico": BASE_DIR / "historico_calchaqui.csv"},
-    {"nombre": "Paso de las Piedras","clave": "piedras",  "archivo_ultimo": BASE_DIR / "ultimo_piedras.json",  "archivo_historico": BASE_DIR / "historico_piedras.csv"},
+    {"nombre": "El Bonete (Golondrina, Vera)",        "clave": "bonete",   "archivo_ultimo": BASE_DIR / "ultimo_bonete.json",   "archivo_historico": BASE_DIR / "historico_bonete.csv"},
+    {"nombre": "Tostado (Rio Salado, R.N. 95)",       "clave": "tostado",  "archivo_ultimo": BASE_DIR / "ultimo_tostado.json",  "archivo_historico": BASE_DIR / "historico_tostado.csv"},
+    {"nombre": "Calchaqui (Rio Calchaqui, R.P. 38)",  "clave": "calchaqui","archivo_ultimo": BASE_DIR / "ultimo_calchaqui.json","archivo_historico": BASE_DIR / "historico_calchaqui.csv"},
+    {"nombre": "Paso de las Piedras (Rio Salado, La Penca)","clave": "piedras",  "archivo_ultimo": BASE_DIR / "ultimo_piedras.json",  "archivo_historico": BASE_DIR / "historico_piedras.csv"},
 ]
+
+FACEBOOK_PAGE_URL = "facebook.com/profile.php?id=1147087285146142"
 
 API_PAGE  = "https://www.santafe.gob.ar/idesf/vis-pre/?user=rec_hidricos_alturas"
 API_PROXY = "https://www.santafe.gob.ar/idesf/vis-pre/proxyPTRxml.php?url="
@@ -100,6 +102,12 @@ def construir_bloque(datos):
     variacion  = f"{datos['variacion_m']:+.2f} m" if datos.get("variacion_m") is not None else "s/d"
     estado     = datos["estado"]
     alerta_tag = "  *** ALERTA ***" if estado == "ALERTA" else ""
+    tendencia  = ""
+    if datos.get("variacion_m") is not None:
+        if datos["variacion_m"] > 0:
+            tendencia = " - Sube"
+        elif datos["variacion_m"] < 0:
+            tendencia = " - Baja"
     brusca     = ""
     if datos.get("variacion_brusca") is not None:
         d = datos["variacion_brusca"]
@@ -109,7 +117,7 @@ def construir_bloque(datos):
         f"{datos['estacion']}{alerta_tag}\n"
         f"  Altura:    {altura}\n"
         f"  Variacion: {variacion}\n"
-        f"  Estado:    {estado}{brusca}\n"
+        f"  Estado:    {estado}{tendencia}{brusca}\n"
     )
 
 
@@ -129,6 +137,7 @@ def enviar_email(config, asunto, cuerpo_texto):
         + "\n----------------------------------------\n"
         f"Fuente: Sec. Recursos Hidricos Santa Fe\n"
         f"Generado: {datetime.now(ARGENTINA_TZ).strftime('%d/%m/%Y %H:%M')}\n"
+        f"{FACEBOOK_PAGE_URL}\n"
     )
 
     msg.attach(MIMEText(cuerpo_completo, "plain", "utf-8"))
@@ -289,7 +298,7 @@ def main():
             print(f"\nERROR al enviar mail: {e}", file=sys.stderr)
             notificacion_macos("Rios - Error mail", str(e))
 
-        mensaje = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + cuerpo
+        mensaje = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + cuerpo + f"\n{FACEBOOK_PAGE_URL}"
         enviar_whatsapp(config, mensaje)
         publicar_facebook(config, mensaje)
     else:
