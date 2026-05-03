@@ -121,6 +121,75 @@ def construir_bloque(datos):
     )
 
 
+def generar_comentario(resultados):
+    def get_est(clave):
+        for r in resultados:
+            if "error" not in r and clave.lower() in r["estacion"].lower():
+                return r
+        return None
+
+    def clasif(v):
+        if v is None or abs(v) < 0.005:
+            return "estable", None
+        return ("leve" if abs(v) <= 0.03 else "marcada"), (v > 0)
+
+    tostado   = get_est("tostado")
+    bonete    = get_est("bonete")
+    calchaqui = get_est("calchaqui")
+    piedras   = get_est("piedras")
+
+    hay_alerta = any(r.get("estado") == "ALERTA" for r in resultados if "error" not in r)
+
+    oraciones = []
+    n_subiendo = 0
+
+    if tostado:
+        v = tostado.get("variacion_m")
+        desc, sube = clasif(v)
+        if desc == "estable":
+            oraciones.append("El río Salado en Tostado se mantiene sin variaciones significativas")
+        else:
+            oraciones.append(f"El río Salado en Tostado registra una {desc} {'suba' if sube else 'baja'}")
+            if sube:
+                n_subiendo += 1
+
+    segmentos = []
+    for nombre_corto, est in [("norte provincial (El Bonete)", bonete), ("centro-norte (Calchaquí)", calchaqui)]:
+        if est:
+            v = est.get("variacion_m")
+            desc, sube = clasif(v)
+            if desc != "estable":
+                segmentos.append(f"el {nombre_corto} presenta una {desc} {'suba' if sube else 'baja'}")
+                if sube:
+                    n_subiendo += 1
+
+    if segmentos:
+        joined = " y ".join(segmentos)
+        oraciones.append(joined[0].upper() + joined[1:])
+
+    pulso_en_camino = False
+    if piedras:
+        v = piedras.get("variacion_m")
+        desc, sube = clasif(v)
+        if desc == "estable":
+            oraciones.append("Paso de las Piedras se mantiene estable en el tramo de cierre")
+            pulso_en_camino = n_subiendo >= 1
+        elif sube:
+            oraciones.append(f"Paso de las Piedras acusa una {desc} suba, indicando que el sistema se está cargando")
+        else:
+            oraciones.append(f"Paso de las Piedras registra una {desc} baja, lo que indica que el sistema continúa drenando")
+            pulso_en_camino = n_subiendo >= 1
+
+    if pulso_en_camino:
+        if n_subiendo >= 2:
+            oraciones.append("A pesar de los aportes aguas arriba, el pulso todavía no se refleja con fuerza en el tramo inferior")
+        else:
+            oraciones.append("El aporte registrado aguas arriba todavía no tiene traslado claro hacia el tramo inferior")
+
+    cierre = "Se mantiene vigilancia sobre las estaciones en alerta." if hay_alerta else "El sistema se mantiene dentro de parámetros normales."
+    return ". ".join(oraciones) + ". " + cierre
+
+
 def enviar_email(config, asunto, cuerpo_texto):
     remitente = config["gmail_usuario"]
     password  = config["gmail_password"]
@@ -281,6 +350,9 @@ def main():
         cuerpo = ""
         for d in datos_validos:
             cuerpo += construir_bloque(d) + "\n"
+
+        comentario = generar_comentario(resultados)
+        cuerpo += comentario + "\n"
 
         fecha_fmt = datos_validos[0]["fecha"] if datos_validos else datetime.now(ARGENTINA_TZ).strftime("%d/%m/%Y")
         if hay_variacion_brusca:
