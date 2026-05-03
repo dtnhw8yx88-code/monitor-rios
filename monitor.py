@@ -38,6 +38,13 @@ ESTACIONES = [
 
 FACEBOOK_PAGE_URL = "facebook.com/profile.php?id=1147087285146142"
 
+LOCALIDADES_CLIMA = {
+    "Vera":        (-29.47, -60.21),
+    "Tostado":     (-29.23, -61.77),
+    "Calchaqui":   (-29.89, -60.29),
+    "Gob. Crespo": (-29.32, -61.00),
+}
+
 API_PAGE  = "https://www.santafe.gob.ar/idesf/vis-pre/?user=rec_hidricos_alturas"
 API_PROXY = "https://www.santafe.gob.ar/idesf/vis-pre/proxyPTRxml.php?url="
 API_WFS   = "https://aswe.santafe.gov.ar/idesf/geoserver/RecursosHidricos/wfs/wfs"
@@ -133,60 +140,92 @@ def generar_comentario(resultados):
             return "estable", None
         return ("leve" if abs(v) <= 0.03 else "marcada"), (v > 0)
 
-    tostado   = get_est("tostado")
-    bonete    = get_est("bonete")
-    calchaqui = get_est("calchaqui")
-    piedras   = get_est("piedras")
+    T = get_est("tostado")
+    B = get_est("bonete")
+    C = get_est("calchaqui")
+    P = get_est("piedras")
 
     hay_alerta = any(r.get("estado") == "ALERTA" for r in resultados if "error" not in r)
 
+    def info(est):
+        if not est:
+            return "estable", None, 0.0, "NORMAL"
+        v = est.get("variacion_m")
+        d, s = clasif(v)
+        return d, s, float(est.get("altura_m", 0)), est.get("estado", "NORMAL")
+
+    dt, st, at, et = info(T)
+    db, sb, ab, eb = info(B)
+    dc, sc, ac, ec = info(C)
+    dp, sp, ap, ep = info(P)
+
+    n_sube = sum(1 for s in [st, sb, sc] if s is True)
+    n_alerta_sube = sum(1 for s, e in [(sb, eb), (sc, ec)] if s is True and e == "ALERTA")
+
     oraciones = []
-    n_subiendo = 0
 
-    if tostado:
-        v = tostado.get("variacion_m")
-        desc, sube = clasif(v)
-        if desc == "estable":
-            oraciones.append("El río Salado en Tostado se mantiene sin variaciones significativas")
+    # Alertas activas
+    alertas = [nombre for nombre, est in [("Tostado", et), ("Calchaqui", ec), ("El Bonete", eb), ("Paso de las Piedras", ep)] if est == "ALERTA"]
+    if alertas:
+        oraciones.append(f"{' y '.join(alertas)} {'esta' if len(alertas) == 1 else 'estan'} en alerta")
+
+    # Tostado: entrada principal del sistema
+    if dt != "estable":
+        if st:
+            if et == "ALERTA":
+                oraciones.append(f"Tostado sube ({at:.2f} m) — el Salado sigue empujando agua desde el oeste")
+            else:
+                oraciones.append(f"Tostado sube a {at:.2f} m")
         else:
-            oraciones.append(f"El río Salado en Tostado registra una {desc} {'suba' if sube else 'baja'}")
-            if sube:
-                n_subiendo += 1
+            if et == "ALERTA":
+                oraciones.append(f"Tostado cede un poco ({at:.2f} m) pero sigue en zona de alerta")
+            else:
+                oraciones.append(f"Tostado baja a {at:.2f} m")
+    else:
+        if et == "ALERTA":
+            oraciones.append(f"Tostado no cambia pero sigue alto ({at:.2f} m, en alerta)")
 
-    segmentos = []
-    for nombre_corto, est in [("norte provincial (El Bonete)", bonete), ("centro-norte (Calchaquí)", calchaqui)]:
-        if est:
-            v = est.get("variacion_m")
-            desc, sube = clasif(v)
-            if desc != "estable":
-                segmentos.append(f"el {nombre_corto} presenta una {desc} {'suba' if sube else 'baja'}")
-                if sube:
-                    n_subiendo += 1
-
-    if segmentos:
-        joined = " y ".join(segmentos)
-        oraciones.append(joined[0].upper() + joined[1:])
-
-    pulso_en_camino = False
-    if piedras:
-        v = piedras.get("variacion_m")
-        desc, sube = clasif(v)
-        if desc == "estable":
-            oraciones.append("Paso de las Piedras se mantiene estable en el tramo de cierre")
-            pulso_en_camino = n_subiendo >= 1
-        elif sube:
-            oraciones.append(f"Paso de las Piedras acusa una {desc} suba, indicando que el sistema se está cargando")
+    # Calchaqui y Bonete: aportes internos
+    internos_subiendo = []
+    internos_bajando  = []
+    if sc is True:
+        if ec == "ALERTA":
+            internos_subiendo.append(f"Calchaqui sube y esta en alerta ({ac:.2f} m)")
         else:
-            oraciones.append(f"Paso de las Piedras registra una {desc} baja, lo que indica que el sistema continúa drenando")
-            pulso_en_camino = n_subiendo >= 1
+            internos_subiendo.append(f"Calchaqui sube ({ac:.2f} m)")
+    elif sc is False:
+        internos_bajando.append(f"Calchaqui baja ({ac:.2f} m)")
 
-    if pulso_en_camino:
-        if n_subiendo >= 2:
-            oraciones.append("A pesar de los aportes aguas arriba, el pulso todavía no se refleja con fuerza en el tramo inferior")
+    if sb is True:
+        if eb == "ALERTA":
+            internos_subiendo.append(f"El Bonete sube y esta en alerta ({ab:.2f} m)")
         else:
-            oraciones.append("El aporte registrado aguas arriba todavía no tiene traslado claro hacia el tramo inferior")
+            internos_subiendo.append(f"El Bonete tambien sube ({ab:.2f} m)")
+    elif sb is False:
+        internos_bajando.append(f"El Bonete baja ({ab:.2f} m)")
 
-    cierre = "Se mantiene vigilancia sobre las estaciones en alerta." if hay_alerta else "El sistema se mantiene dentro de parámetros normales."
+    for frase in internos_subiendo + internos_bajando:
+        oraciones.append(frase)
+
+    # Paso de las Piedras: resultado final
+    if P:
+        if sp is True:
+            oraciones.append(f"Paso de las Piedras sube a {ap:.2f} m — el agua llega al punto de cierre")
+            if n_alerta_sube >= 1:
+                oraciones.append("La situacion puede seguir empeorando si se mantienen los aportes del norte")
+        elif sp is False:
+            oraciones.append(f"Paso de las Piedras baja a {ap:.2f} m — el sistema esta drenando")
+            if n_sube >= 1 and n_alerta_sube >= 1:
+                oraciones.append("Ojo: con Calchaqui o Tostado todavia en alerta, ese descenso puede no durar")
+            elif n_sube >= 1:
+                oraciones.append("Hay aportes aguas arriba que podrian frenar esa baja")
+        else:
+            if n_sube >= 1:
+                oraciones.append(f"Paso de las Piedras se mantiene en {ap:.2f} m, el agua de arriba todavia no llego")
+            else:
+                oraciones.append(f"Paso de las Piedras estable en {ap:.2f} m")
+
+    cierre = "Situacion para seguir de cerca." if hay_alerta else "Sin novedades por ahora."
     return ". ".join(oraciones) + ". " + cierre
 
 
@@ -250,10 +289,73 @@ def enviar_whatsapp(config, texto):
 
 
 def notificacion_macos(titulo, mensaje):
-    if sys.platform != "darwin":
-        return
-    script = f'display notification "{mensaje}" with title "{titulo}" sound name "Default"'
-    subprocess.run(["osascript", "-e", script], check=False)
+    if sys.platform == "darwin":
+        script = f'display notification "{mensaje}" with title "{titulo}" sound name "Default"'
+        subprocess.run(["osascript", "-e", script], check=False)
+
+
+def fetch_precipitaciones():
+    resultados = {}
+    for nombre, (lat, lon) in LOCALIDADES_CLIMA.items():
+        try:
+            url = (
+                f"https://api.open-meteo.com/v1/forecast"
+                f"?latitude={lat}&longitude={lon}"
+                f"&daily=precipitation_sum"
+                f"&timezone=America%2FArgentina%2FBuenos_Aires"
+                f"&forecast_days=7"
+            )
+            r = requests.get(url, timeout=10)
+            data = r.json()
+            dias   = data["daily"]["time"]
+            lluvia = data["daily"]["precipitation_sum"]
+            total  = round(sum(x for x in lluvia if x), 1)
+            # Dia de mayor lluvia (excluir hoy)
+            pares = list(zip(dias[1:], lluvia[1:]))
+            dia_pico, mm_pico = max(pares, key=lambda x: x[1])
+            resultados[nombre] = {"total": total, "dia_pico": dia_pico, "mm_pico": round(mm_pico, 1)}
+        except Exception as e:
+            print(f"CLIMA {nombre}: error {e}", file=sys.stderr)
+    return resultados
+
+
+def comentario_precipitaciones(precip, hay_alerta):
+    if not precip:
+        return ""
+
+    DIAS_ES = {"Monday":"lun","Tuesday":"mar","Wednesday":"mie","Thursday":"jue","Friday":"vie","Saturday":"sab","Sunday":"dom"}
+
+    lineas = []
+    for nombre, d in precip.items():
+        lineas.append(f"{nombre}: {d['total']} mm")
+    resumen = " | ".join(lineas)
+
+    # Dia del evento principal
+    totales = [d["total"] for d in precip.values()]
+    total_max = max(totales)
+    picos = [d for d in precip.values() if d["mm_pico"] > 5]
+    dia_evento = ""
+    if picos:
+        fecha_pico = datetime.strptime(picos[0]["dia_pico"], "%Y-%m-%d")
+        dia_semana = DIAS_ES.get(fecha_pico.strftime("%A"), "")
+        dia_evento = f" — evento principal: {dia_semana} {fecha_pico.strftime('%d/%m')}"
+
+    if total_max < 10:
+        interpretacion = "Sin lluvias relevantes previstas. El sistema podria seguir drenando."
+    elif total_max < 30:
+        interpretacion = "Lluvias leves previstas, sin impacto significativo esperado en los rios."
+    elif total_max < 60:
+        if hay_alerta:
+            interpretacion = "Lluvias moderadas previstas. Con el sistema en alerta, podrian frenar el drenaje actual."
+        else:
+            interpretacion = "Lluvias moderadas previstas. A monitorear si los rios responden."
+    else:
+        if hay_alerta:
+            interpretacion = "Lluvias importantes previstas. Podrian empeorar la situacion en las estaciones en alerta."
+        else:
+            interpretacion = "Lluvias importantes previstas. El sistema podria volver a cargarse."
+
+    return f"Lluvia prevista 7 dias{dia_evento}:\n{resumen}\n{interpretacion}"
 
 
 def cargar_config():
@@ -354,6 +456,11 @@ def main():
         comentario = generar_comentario(resultados)
         cuerpo += comentario + "\n"
 
+        precip = fetch_precipitaciones()
+        bloque_clima = comentario_precipitaciones(precip, hay_alerta)
+        if bloque_clima:
+            cuerpo += "\n" + bloque_clima + "\n"
+
         fecha_fmt = datos_validos[0]["fecha"] if datos_validos else datetime.now(ARGENTINA_TZ).strftime("%d/%m/%Y")
         if hay_variacion_brusca:
             asunto = f"GF | Rios {fecha_fmt} | VARIACION BRUSCA {resumen_brusca.strip()}"
@@ -370,8 +477,15 @@ def main():
             print(f"\nERROR al enviar mail: {e}", file=sys.stderr)
             notificacion_macos("Rios - Error mail", str(e))
 
+        # WhatsApp: tres mensajes para no superar el limite de caracteres
+        msg_datos = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + "".join(construir_bloque(d) + "\n" for d in datos_validos) + f"\n{FACEBOOK_PAGE_URL}"
+        enviar_whatsapp(config, msg_datos)
+        enviar_whatsapp(config, comentario)
+        if bloque_clima:
+            enviar_whatsapp(config, bloque_clima)
+
+        # Facebook y email: mensaje completo
         mensaje = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + cuerpo + f"\n{FACEBOOK_PAGE_URL}"
-        enviar_whatsapp(config, mensaje)
         publicar_facebook(config, mensaje)
     else:
         print("\nSin datos nuevos, no se envia mail.")
