@@ -161,11 +161,16 @@ def generar_texto(focos, modo, turno):
     n         = len(focos)
 
     if modo == "sin_focos":
-        cierre = "mediodía" if turno == "manana" else "cierre del día"
-        return (
-            f"Sin focos de calor detectados hoy al {cierre} en los departamentos {DEPARTAMENTOS}. "
-            f"El sistema satelital NASA FIRMS no registra actividad en la zona. 🌿"
-        )
+        if turno == "manana":
+            return (
+                f"Sin focos de calor detectados en el día de hoy en los departamentos {DEPARTAMENTOS}. "
+                f"El sistema satelital NASA FIRMS no registra actividad en la zona. 🌿"
+            )
+        else:
+            return (
+                f"Sin focos de calor registrados durante el día de hoy en los departamentos {DEPARTAMENTOS}. "
+                f"El sistema satelital NASA FIRMS no registra actividad en la zona. 🌿"
+            )
 
     if modo == "apagado":
         zona = localizar_focos([])
