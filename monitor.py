@@ -10,7 +10,6 @@ import os
 import smtplib
 import subprocess
 import sys
-import textwrap
 from datetime import datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -278,7 +277,7 @@ def _font(size, bold=False):
     return ImageFont.load_default()
 
 
-def generar_imagen_rios(datos_validos, fecha_str, comentario):
+def generar_imagen_rios(datos_validos, fecha_str):
     template = BASE_DIR / "template_rios.png"
     img  = Image.open(template).convert("RGB")
     draw = ImageDraw.Draw(img)
@@ -301,7 +300,7 @@ def generar_imagen_rios(datos_validos, fecha_str, comentario):
               fecha_str, font=f_fecha, fill=AZUL, anchor="mm")
 
     # Filas de estaciones
-    ROW_CY     = [0.485, 0.585, 0.675, 0.765]
+    ROW_CY     = [0.485, 0.585, 0.675, 0.758]
     COL_ALTURA = 0.420
     COL_VAR    = 0.645
     COL_ESTADO = 0.855
@@ -576,7 +575,7 @@ def main():
 
         # Facebook: imagen generada + texto completo
         mensaje = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + cuerpo + f"\n{FACEBOOK_PAGE_URL}"
-        img_path = generar_imagen_rios(datos_validos, fecha_fmt, comentario)
+        img_path = generar_imagen_rios(datos_validos, fecha_fmt)
         publicar_facebook(config, mensaje, img_path)
     else:
         print("\nSin datos nuevos, no se envia mail.")
