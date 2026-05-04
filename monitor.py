@@ -294,13 +294,13 @@ def generar_imagen_rios(datos_validos, fecha_str, comentario):
     f_estado = _font(int(W * 0.024), bold=True)
     f_tend   = _font(int(W * 0.021))
 
-    # Fecha
+    # Fecha (texto oscuro — el cuadro es blanco)
     draw.text((int(W * 0.565), int(H * 0.434)),
-              fecha_str, font=f_fecha, fill=BLANCO, anchor="mm")
+              fecha_str, font=f_fecha, fill=AZUL, anchor="mm")
 
     # Filas de estaciones
-    # Ajustar ROW_CY si los datos no quedan centrados en cada fila
-    ROW_CY     = [0.562, 0.650, 0.738, 0.840]
+    # ROW_CY = centros verticales de cada fila de datos (relativo a H)
+    ROW_CY     = [0.474, 0.562, 0.650, 0.738]
     COL_ALTURA = 0.407
     COL_VAR    = 0.625
     COL_ESTADO = 0.834
@@ -331,14 +331,14 @@ def generar_imagen_rios(datos_validos, fecha_str, comentario):
     n_sube = sum(1 for d in datos_validos if (d.get("variacion_m") or 0) > 0)
     n_baja = sum(1 for d in datos_validos if (d.get("variacion_m") or 0) < 0)
     tend_corta = "En ascenso" if n_sube > n_baja else ("En descenso" if n_baja > n_sube else "Estable")
-    draw.text((int(W * 0.390), int(H * 0.924)),
+    draw.text((int(W * 0.390), int(H * 0.855)),
               tend_corta, font=f_tend, fill=AZUL, anchor="mm")
 
     oraciones  = comentario.split(". ")
     tend_larga = ". ".join(oraciones[:2]) + "."
     lines  = textwrap.wrap(tend_larga, width=40)
     line_h = int(H * 0.023)
-    ty     = int(H * 0.910)
+    ty     = int(H * 0.840)
     for line in lines[:3]:
         draw.text((int(W * 0.530), ty), line, font=f_tend, fill=OSCURO, anchor="lm")
         ty += line_h
