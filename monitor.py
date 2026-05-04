@@ -297,11 +297,11 @@ def generar_imagen_rios(datos_validos, fecha_str, comentario):
     f_tend   = _font(int(W * 0.021))
 
     # Fecha
-    draw.text((int(W * 0.535), int(H * 0.382)),
+    draw.text((int(W * 0.535), int(H * 0.360)),
               fecha_str, font=f_fecha, fill=AZUL, anchor="mm")
 
     # Filas de estaciones
-    ROW_CY     = [0.500, 0.600, 0.695, 0.800]
+    ROW_CY     = [0.485, 0.585, 0.675, 0.765]
     COL_ALTURA = 0.420
     COL_VAR    = 0.645
     COL_ESTADO = 0.855
@@ -328,21 +328,12 @@ def generar_imagen_rios(datos_validos, fecha_str, comentario):
         draw.text((bx, cy), "ALERTA" if es_alerta else "NORMAL",
                   font=f_estado, fill=BLANCO, anchor="mm")
 
-    # Tendencia general — solo texto, sin números
+    # Tendencia: solo label corto en el recuadro izquierdo
     n_sube = sum(1 for d in datos_validos if (d.get("variacion_m") or 0) > 0)
     n_baja = sum(1 for d in datos_validos if (d.get("variacion_m") or 0) < 0)
     tend_corta = "En ascenso" if n_sube > n_baja else ("En descenso" if n_baja > n_sube else "Estable")
     draw.text((int(W * 0.375), int(H * 0.875)),
               tend_corta, font=f_tend, fill=AZUL, anchor="mm")
-
-    oraciones  = comentario.split(". ")
-    tend_larga = ". ".join(oraciones[:2]) + "."
-    lines  = textwrap.wrap(tend_larga, width=38)
-    line_h = int(H * 0.026)
-    ty     = int(H * 0.858)
-    for line in lines[:3]:
-        draw.text((int(W * 0.470), ty), line, font=f_tend, fill=OSCURO, anchor="lm")
-        ty += line_h
 
     img_path = BASE_DIR / "informe_rios.png"
     img.save(img_path)
