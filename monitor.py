@@ -6,17 +6,20 @@ Fuente: Secretaría de Recursos Hídricos, Santa Fe
 
 import json
 import csv
+import os
 import smtplib
 import subprocess
 import sys
+import textwrap
 from datetime import datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
-ARGENTINA_TZ = timezone(timedelta(hours=-3))
-
+from PIL import Image, ImageDraw, ImageFont
 import requests
+
+ARGENTINA_TZ = timezone(timedelta(hours=-3))
 
 BASE_DIR = Path(__file__).parent
 CONFIG_FILE = BASE_DIR / "config.json"
@@ -257,17 +260,110 @@ def enviar_email(config, asunto, cuerpo_texto):
         servidor.sendmail(remitente, DESTINATARIOS, msg.as_string())
 
 
-def publicar_facebook(config, texto):
+def _font(size, bold=False):
+    candidates = (
+        ["/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+         "/System/Library/Fonts/Supplemental/Arial Bold.ttf"]
+        if bold else
+        ["/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+         "/System/Library/Fonts/Supplemental/Arial.ttf"]
+    )
+    for p in candidates:
+        if os.path.exists(p):
+            return ImageFont.truetype(p, size)
+    return ImageFont.load_default()
+
+
+def generar_imagen_rios(datos_validos, fecha_str, comentario):
+    template = BASE_DIR / "template_rios.png"
+    img  = Image.open(template).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    W, H = img.size
+
+    AZUL   = (26,  58,  92)
+    VERDE  = (30, 130,  76)
+    ROJO   = (176,  0,  32)
+    BLANCO = (255, 255, 255)
+    OSCURO = (40,  40,  40)
+
+    f_fecha  = _font(int(W * 0.026), bold=True)
+    f_altura = _font(int(W * 0.038), bold=True)
+    f_var    = _font(int(W * 0.026), bold=True)
+    f_estado = _font(int(W * 0.024), bold=True)
+    f_tend   = _font(int(W * 0.021))
+
+    # Fecha
+    draw.text((int(W * 0.565), int(H * 0.434)),
+              fecha_str, font=f_fecha, fill=BLANCO, anchor="mm")
+
+    # Filas de estaciones
+    # Ajustar ROW_CY si los datos no quedan centrados en cada fila
+    ROW_CY     = [0.562, 0.650, 0.738, 0.840]
+    COL_ALTURA = 0.407
+    COL_VAR    = 0.625
+    COL_ESTADO = 0.834
+
+    for i, d in enumerate(datos_validos[:4]):
+        cy = int(H * ROW_CY[i])
+        es_alerta = d.get("estado") == "ALERTA"
+
+        draw.text((int(W * COL_ALTURA), cy),
+                  f"{d['altura_m']:.2f}", font=f_altura, fill=AZUL, anchor="mm")
+
+        v = d.get("variacion_m")
+        if v is not None:
+            flecha   = "↑" if v > 0 else ("↓" if v < 0 else "→")
+            color_v  = VERDE if v > 0 else (ROJO if v < 0 else OSCURO)
+            draw.text((int(W * COL_VAR), cy),
+                      f"{flecha} {abs(v):.2f} m", font=f_var, fill=color_v, anchor="mm")
+
+        bw = int(W * 0.160); bh = int(H * 0.042)
+        bx = int(W * COL_ESTADO)
+        bbox = [bx - bw//2, cy - bh//2, bx + bw//2, cy + bh//2]
+        draw.rounded_rectangle(bbox, radius=int(bh * 0.35),
+                                fill=ROJO if es_alerta else VERDE)
+        draw.text((bx, cy), "ALERTA" if es_alerta else "NORMAL",
+                  font=f_estado, fill=BLANCO, anchor="mm")
+
+    # Tendencia general
+    n_sube = sum(1 for d in datos_validos if (d.get("variacion_m") or 0) > 0)
+    n_baja = sum(1 for d in datos_validos if (d.get("variacion_m") or 0) < 0)
+    tend_corta = "En ascenso" if n_sube > n_baja else ("En descenso" if n_baja > n_sube else "Estable")
+    draw.text((int(W * 0.390), int(H * 0.924)),
+              tend_corta, font=f_tend, fill=AZUL, anchor="mm")
+
+    oraciones  = comentario.split(". ")
+    tend_larga = ". ".join(oraciones[:2]) + "."
+    lines  = textwrap.wrap(tend_larga, width=40)
+    line_h = int(H * 0.023)
+    ty     = int(H * 0.910)
+    for line in lines[:3]:
+        draw.text((int(W * 0.530), ty), line, font=f_tend, fill=OSCURO, anchor="lm")
+        ty += line_h
+
+    img_path = BASE_DIR / "informe_rios.png"
+    img.save(img_path)
+    return img_path
+
+
+def publicar_facebook(config, texto, img_path):
     page_token = config.get("facebook_page_token", "")
     if not page_token:
+        print("ERROR Facebook: token vacío en config", file=sys.stderr)
         return
     try:
-        resp = requests.post(
-            "https://graph.facebook.com/v25.0/1147087285146142/feed",
-            data={"message": texto, "access_token": page_token},
-            timeout=15,
-        )
-        print(f"Facebook publicado: {resp.status_code}")
+        with open(img_path, "rb") as img:
+            resp = requests.post(
+                "https://graph.facebook.com/v25.0/1147087285146142/photos",
+                data={"message": texto, "access_token": page_token},
+                files={"source": img},
+                timeout=30,
+            )
+        print(f"Facebook: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"Facebook error body: {resp.text[:300]}", file=sys.stderr)
     except Exception as e:
         print(f"ERROR Facebook: {e}", file=sys.stderr)
 
@@ -474,7 +570,7 @@ def main():
             print(f"\nMail enviado: {asunto}")
             notificacion_macos("Informe Rios enviado", asunto)
         except Exception as e:
-            print(f"\nERROR al enviar mail: {e}", file=sys.stderr)
+            print(f"\nERROR mail ({type(e).__name__}): {e}", file=sys.stderr)
             notificacion_macos("Rios - Error mail", str(e))
 
         # WhatsApp: tres mensajes para no superar el limite de caracteres
@@ -484,9 +580,10 @@ def main():
         if bloque_clima:
             enviar_whatsapp(config, bloque_clima)
 
-        # Facebook y email: mensaje completo
+        # Facebook: imagen generada + texto completo
         mensaje = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + cuerpo + f"\n{FACEBOOK_PAGE_URL}"
-        publicar_facebook(config, mensaje)
+        img_path = generar_imagen_rios(datos_validos, fecha_fmt, comentario)
+        publicar_facebook(config, mensaje, img_path)
     else:
         print("\nSin datos nuevos, no se envia mail.")
 
