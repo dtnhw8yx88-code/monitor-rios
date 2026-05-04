@@ -117,6 +117,8 @@ def construir_bloque(datos):
             tendencia = " - Sube"
         elif datos["variacion_m"] < 0:
             tendencia = " - Baja"
+        else:
+            tendencia = " - Sin cambios"
     brusca     = ""
     if datos.get("variacion_brusca") is not None:
         d = datos["variacion_brusca"]
@@ -300,7 +302,7 @@ def generar_imagen_rios(datos_validos, fecha_str):
               fecha_str, font=f_fecha, fill=AZUL, anchor="mm")
 
     # Filas de estaciones
-    ROW_CY     = [0.485, 0.585, 0.675, 0.758]
+    ROW_CY     = [0.485, 0.585, 0.675, 0.748]
     COL_ALTURA = 0.420
     COL_VAR    = 0.645
     COL_ESTADO = 0.855
@@ -314,18 +316,27 @@ def generar_imagen_rios(datos_validos, fecha_str):
 
         v = d.get("variacion_m")
         if v is not None:
-            flecha  = "+" if v > 0 else ("-" if v < 0 else "")
-            color_v = VERDE if v > 0 else (ROJO if v < 0 else OSCURO)
-            draw.text((int(W * COL_VAR), cy),
-                      f"{flecha}{abs(v):.2f} m", font=f_var, fill=color_v, anchor="mm")
+            if v == 0:
+                draw.text((int(W * COL_VAR), cy), "Sin cambios", font=f_var, fill=OSCURO, anchor="mm")
+            else:
+                flecha  = "+" if v > 0 else "-"
+                color_v = VERDE if v > 0 else ROJO
+                draw.text((int(W * COL_VAR), cy),
+                          f"{flecha}{abs(v):.2f} m", font=f_var, fill=color_v, anchor="mm")
 
-        bw = int(W * 0.130); bh = int(H * 0.038)
+        v_val = d.get("variacion_m") or 0
+        tendencia_badge = "Sube" if v_val > 0 else ("Baja" if v_val < 0 else "Sin cambios")
+        estado_txt = "ALERTA" if es_alerta else "NORMAL"
+
+        bw = int(W * 0.130); bh = int(H * 0.052)
         bx = int(W * COL_ESTADO)
         bbox = [bx - bw//2, cy - bh//2, bx + bw//2, cy + bh//2]
-        draw.rounded_rectangle(bbox, radius=int(bh * 0.35),
+        draw.rounded_rectangle(bbox, radius=int(bh * 0.25),
                                 fill=ROJO if es_alerta else VERDE)
-        draw.text((bx, cy), "ALERTA" if es_alerta else "NORMAL",
+        draw.text((bx, cy - int(bh * 0.18)), estado_txt,
                   font=f_estado, fill=BLANCO, anchor="mm")
+        draw.text((bx, cy + int(bh * 0.22)), tendencia_badge,
+                  font=_font(int(W * 0.018)), fill=BLANCO, anchor="mm")
 
     # Tendencia: solo label corto en el recuadro izquierdo
     n_sube = sum(1 for d in datos_validos if (d.get("variacion_m") or 0) > 0)
