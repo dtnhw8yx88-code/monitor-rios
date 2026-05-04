@@ -243,11 +243,9 @@ def guardar_estado(hay_focos, n_focos):
 
 def main():
     ahora     = datetime.now(ARGENTINA_TZ)
-    hora      = ahora.hour
-    turno     = "manana" if hora < 16 else "tarde"
     fecha_str = ahora.strftime("%d/%m/%Y  %H:%M hs")
 
-    print(f"[{fecha_str}] Monitor Incendios — turno {turno}")
+    print(f"[{fecha_str}] Monitor Incendios")
 
     with open(CONFIG_FILE) as f:
         config = json.load(f)
@@ -264,36 +262,19 @@ def main():
         print(f"ERROR FIRMS: {e}", file=sys.stderr)
         sys.exit(1)
 
-    estado_prev = cargar_estado()
-    hay_focos   = len(focos) > 0
+    if not focos:
+        print("Sin focos activos — no se publica.")
+        guardar_estado(False, 0)
+        print("Listo.")
+        return
 
-    if turno == "manana":
-        modo = "alerta" if hay_focos else "sin_focos"
-    else:
-        if hay_focos:
-            modo = "alerta"
-        elif estado_prev["habia_focos"]:
-            modo = "apagado"
-        else:
-            modo = "sin_focos"
-
-    # Imagen: mapa generado si hay focos, foto fija si no hay
-    FOTO_SIN_FOCOS = BASE_DIR / "foto_sin_focos.png"
-    if hay_focos:
-        img_path = generar_mapa(focos, fecha_str)
-    elif FOTO_SIN_FOCOS.exists():
-        img_path = FOTO_SIN_FOCOS
-    else:
-        img_path = generar_mapa(focos, fecha_str)  # mapa vacío como fallback
-
-    texto    = generar_texto(focos, modo, turno)
+    img_path       = generar_mapa(focos, fecha_str)
+    texto          = generar_texto(focos, "alerta", "manana")
     texto_completo = texto + f"\n\n{FACEBOOK_PAGE_URL}"
 
-    print(f"\nModo: {modo}")
-    print(f"Texto:\n{texto_completo}\n")
-
+    print(f"\nTexto:\n{texto_completo}\n")
     publicar_facebook(config, texto_completo, img_path)
-    guardar_estado(hay_focos, len(focos))
+    guardar_estado(True, len(focos))
     print("Listo.")
 
 
