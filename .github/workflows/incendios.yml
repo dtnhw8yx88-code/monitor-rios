@@ -1,0 +1,59 @@
+name: Monitor Incendios
+
+on:
+  schedule:
+    - cron: '0 13 * * *'   # 10:00 hs Argentina (UTC-3)
+    - cron: '0 23 * * *'   # 20:00 hs Argentina (UTC-3)
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: pip install requests matplotlib contextily geopandas pyproj
+
+      - name: Crear config.json
+        env:
+          FACEBOOK_PAGE_TOKEN: ${{ secrets.FACEBOOK_PAGE_TOKEN }}
+          FIRMS_KEY:           ${{ secrets.FIRMS_KEY }}
+          GMAIL_USUARIO:       ${{ secrets.GMAIL_USUARIO }}
+          GMAIL_PASSWORD:      ${{ secrets.GMAIL_PASSWORD }}
+        run: |
+          python3 -c "
+          import json, os
+          config = {
+            'gmail_usuario':       os.environ.get('GMAIL_USUARIO', ''),
+            'gmail_password':      os.environ.get('GMAIL_PASSWORD', ''),
+            'facebook_page_token': os.environ.get('FACEBOOK_PAGE_TOKEN', ''),
+            'firms_key':           os.environ.get('FIRMS_KEY', ''),
+          }
+          with open('config.json', 'w') as f:
+              json.dump(config, f)
+          "
+
+      - name: Restaurar estado de incendios
+        uses: actions/cache@v4
+        with:
+          path: estado_incendios.json
+          key: estado-incendios-${{ github.run_id }}
+          restore-keys: estado-incendios-
+
+      - name: Correr monitor
+        run: python monitor_incendios.py
+
+      - name: Guardar estado de incendios
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: estado_incendios.json
+          key: estado-incendios-${{ github.run_id }}
