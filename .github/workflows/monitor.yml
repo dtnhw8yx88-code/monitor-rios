@@ -2,7 +2,7 @@ name: Monitor Rios
 
 on:
   schedule:
-    - cron: '0 * * * *'   # cada hora
+    - cron: '0 11-17 * * *'   # cada hora de 8am a 14hs Argentina (UTC-3)
   workflow_dispatch:
     inputs:
       forzar:
