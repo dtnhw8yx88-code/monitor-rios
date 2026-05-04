@@ -3,7 +3,12 @@ name: Monitor Rios
 on:
   schedule:
     - cron: '0 * * * *'   # cada hora
-  workflow_dispatch:        # permite correrlo manualmente
+  workflow_dispatch:
+    inputs:
+      forzar:
+        description: 'Forzar publicacion aunque no haya datos nuevos'
+        type: boolean
+        default: false
 
 jobs:
   monitor:
@@ -56,6 +61,8 @@ jobs:
           restore-keys: ultimos-registros-
 
       - name: Correr monitor
+        env:
+          FORCE_PUBLISH: ${{ github.event.inputs.forzar }}
         run: python monitor.py
 
       - name: Guardar ultimo registro

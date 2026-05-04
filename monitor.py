@@ -544,7 +544,9 @@ def main():
 
     datos_validos = [r for r in resultados if "error" not in r]
 
-    if hay_dato_nuevo and datos_validos:
+    forzar = os.environ.get("FORCE_PUBLISH", "").lower() == "true"
+
+    if (hay_dato_nuevo or forzar) and datos_validos:
         cuerpo = ""
         for d in datos_validos:
             cuerpo += construir_bloque(d) + "\n"
