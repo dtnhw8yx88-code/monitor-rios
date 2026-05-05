@@ -184,20 +184,28 @@ def generar_imagen_litoral(datos, fecha_str):
     BLANCO = (255, 255, 255)
     OSCURO = (40,  40,  40)
 
-    # Cubrir "LITORAL SANTAFESINO" del template con rectángulo del mismo fondo azul
+    # Cubrir "LITORAL SANTAFESINO" — está en banda blanca entre foto e INFORME DIARIO
     draw.rectangle(
-        [int(W * 0.05), int(H * 0.145), int(W * 0.95), int(H * 0.215)],
-        fill=AZUL,
+        [0, int(H * 0.218), W, int(H * 0.282)],
+        fill=BLANCO,
     )
 
-    f_fecha  = _font(int(W * 0.030), bold=True)
+    f_fecha        = _font(int(W * 0.022), bold=True)
+    f_fecha_header = _font(int(W * 0.018), bold=True)
     f_altura = _font(int(W * 0.034), bold=True)
     f_var    = _font(int(W * 0.023), bold=True)
     f_estado = _font(int(W * 0.021), bold=True)
     f_tend   = _font(int(W * 0.023), bold=True)
 
-    # Fecha en el recuadro DD/MM/AAAA del lado derecho del header
-    draw.text((int(W * 0.760), int(H * 0.330)),
+    # Fecha en recuadro DD/MM/AAAA (top-right header): cubrir placeholder y escribir
+    draw.rectangle(
+        [int(W * 0.800), int(H * 0.038), int(W * 0.970), int(H * 0.095)],
+        fill=BLANCO,
+    )
+    draw.text((int(W * 0.885), int(H * 0.065)),
+              fecha_str, font=f_fecha_header, fill=AZUL, anchor="mm")
+    # Fecha en recuadro blanco dentro de INFORME DIARIO
+    draw.text((int(W * 0.525), int(H * 0.320)),
               fecha_str, font=f_fecha, fill=AZUL, anchor="mm")
 
     ROW_CY     = [0.450, 0.510, 0.570, 0.630, 0.690, 0.750, 0.810]
