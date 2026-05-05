@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Monitor de alturas - Litoral / Principales estaciones del Paraná
-Fuente: Prefectura Naval Argentina
-Estaciones: IGUAZÚ, CORRIENTES, PARANÁ, SANTA FE, VICTORIA, GUALEGUAYCHÚ, PARANACITO
+Fuente: INA SIyAH (Instituto Nacional del Agua)
+Estaciones: Iguazú, Corrientes, Paraná, Santa Fe, Victoria, Gualeguaychú, Paranacito
 """
 
 import json
@@ -13,7 +13,6 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 import requests
-from bs4 import BeautifulSoup
 
 ARGENTINA_TZ = timezone(timedelta(hours=-3))
 BASE_DIR     = Path(__file__).parent
@@ -22,85 +21,61 @@ CONFIG_FILE  = BASE_DIR / "config.json"
 FACEBOOK_PAGE_ID  = "1147087285146142"
 FACEBOOK_PAGE_URL = "facebook.com/profile.php?id=1147087285146142"
 
-PNA_URL = "https://contenidosweb.prefecturanaval.gob.ar/alturas/"
+INA_BASE = "https://alerta.ina.gob.ar/a5"
 
+# series_id de INA = estacion_id para cada estación PNA
 ESTACIONES_LITORAL = [
-    {"nombre": "IGUAZU",       "display": "Iguazú"},
-    {"nombre": "CORRIENTES",   "display": "Corrientes"},
-    {"nombre": "PARANA",       "display": "Paraná"},
-    {"nombre": "SANTA FE",     "display": "Santa Fe"},
-    {"nombre": "VICTORIA",     "display": "Victoria"},
-    {"nombre": "GUALEGUAYCHU", "display": "Gualeguaychú"},
-    {"nombre": "PARANACITO",   "display": "Paranacito"},
+    {"series_id":  9, "display": "Iguazú",       "nivel_alerta": 25.0},
+    {"series_id": 19, "display": "Corrientes",    "nivel_alerta":  6.5},
+    {"series_id": 29, "display": "Paraná",        "nivel_alerta":  4.7},
+    {"series_id": 30, "display": "Santa Fe",      "nivel_alerta":  5.3},
+    {"series_id": 32, "display": "Victoria",      "nivel_alerta":  4.6},
+    {"series_id": 99, "display": "Gualeguaychú",  "nivel_alerta":  3.5},
+    {"series_id": 43, "display": "Paranacito",    "nivel_alerta":  2.3},
 ]
 
 
-def fetch_datos_pna():
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "es-AR,es;q=0.9",
-    }
-    last_exc = None
-    for intento in range(3):
+def fetch_observaciones(series_id):
+    ahora      = datetime.now(ARGENTINA_TZ)
+    timestart  = (ahora - timedelta(days=2)).strftime("%Y-%m-%dT00:00:00")
+    timeend    = ahora.strftime("%Y-%m-%dT23:59:59")
+    url = (
+        f"{INA_BASE}/obs/puntual/observaciones/"
+        f"?series_id={series_id}&timestart={timestart}&timeend={timeend}&output=json"
+    )
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    return data if isinstance(data, list) else data.get("rows", [])
+
+
+def procesar_estacion(est):
+    obs = fetch_observaciones(est["series_id"])
+    if not obs:
+        return None
+
+    ultimo    = obs[-1]
+    penultimo = obs[-2] if len(obs) >= 2 else None
+
+    try:
+        altura = float(ultimo["valor"])
+    except (ValueError, TypeError, KeyError):
+        return None
+
+    variacion = None
+    if penultimo:
         try:
-            resp = requests.get(PNA_URL, timeout=40, headers=headers)
-            resp.raise_for_status()
-            break
-        except Exception as e:
-            last_exc = e
-            print(f"Intento {intento+1} fallido: {e}", file=sys.stderr)
-    else:
-        raise last_exc
+            variacion = round(altura - float(penultimo["valor"]), 2)
+        except (ValueError, TypeError, KeyError):
+            pass
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    por_nombre = {}
-    for row in soup.find_all("tr"):
-        cols = row.find_all(["th", "td"])
-        if len(cols) < 10:
-            continue
-        vals = [c.get_text(strip=True) for c in cols]
-        puerto = vals[0].strip()
-        if puerto in por_nombre:
-            continue
-        por_nombre[puerto] = {
-            "altura":    vals[2],
-            "variacion": vals[3],
-            "fecha":     vals[5],
-            "estado":    vals[6],
-            "alerta":    vals[10] if len(vals) > 10 else "-",
-        }
-    return por_nombre
-
-
-def procesar_estacion(datos_pna, estacion):
-    raw = datos_pna.get(estacion["nombre"])
-    if not raw:
-        return None
-
-    try:
-        altura = float(raw["altura"])
-    except (ValueError, TypeError):
-        return None
-
-    try:
-        variacion = float(raw["variacion"])
-    except (ValueError, TypeError):
-        variacion = None
-
-    try:
-        alerta_nivel = float(raw["alerta"]) if raw["alerta"] not in ("-", "", "S/E") else None
-    except (ValueError, TypeError):
-        alerta_nivel = None
-
-    es_alerta = alerta_nivel is not None and altura >= alerta_nivel
+    es_alerta = altura >= est["nivel_alerta"]
 
     return {
-        "nombre":      estacion["display"],
+        "nombre":      est["display"],
         "altura_m":    altura,
         "variacion_m": variacion,
         "estado":      "ALERTA" if es_alerta else "NORMAL",
-        "fecha":       raw["fecha"],
     }
 
 
@@ -143,7 +118,6 @@ def generar_imagen_litoral(datos, fecha_str):
     draw.text((int(W * 0.320), int(H * 0.345)),
               fecha_str, font=f_fecha, fill=AZUL, anchor="mm")
 
-    # Fila 1 (Iguazú): 42-48% → centro 45%; resto paso 6%
     ROW_CY     = [0.450, 0.510, 0.570, 0.630, 0.690, 0.750, 0.810]
     COL_ALTURA = 0.490
     COL_VAR    = 0.685
@@ -220,23 +194,18 @@ def main():
     with open(CONFIG_FILE) as f:
         config = json.load(f)
 
-    try:
-        datos_pna = fetch_datos_pna()
-        print(f"Estaciones disponibles en PNA: {len(datos_pna)}")
-    except Exception as e:
-        print(f"ERROR al consultar Prefectura Naval: {e}", file=sys.stderr)
-        sys.exit(1)
-
     datos = []
     for est in ESTACIONES_LITORAL:
-        d = procesar_estacion(datos_pna, est)
-        if d:
-            datos.append(d)
-            v = d["variacion_m"]
-            v_str = f"{v:+.2f}" if v is not None else "s/d"
-            print(f"  {est['nombre']}: {d['altura_m']:.2f} m | {v_str} | {d['estado']}")
-        else:
-            print(f"  {est['nombre']}: sin dato")
+        try:
+            d = procesar_estacion(est)
+            if d:
+                datos.append(d)
+                v_str = f"{d['variacion_m']:+.2f}" if d["variacion_m"] is not None else "s/d"
+                print(f"  {est['display']:15s}: {d['altura_m']:.2f} m | {v_str} | {d['estado']}")
+            else:
+                print(f"  {est['display']:15s}: sin dato")
+        except Exception as e:
+            print(f"  {est['display']:15s}: ERROR {e}", file=sys.stderr)
 
     if not datos:
         print("Sin datos disponibles — no se publica.")
@@ -248,18 +217,15 @@ def main():
     lineas = []
     for d in datos:
         v = d.get("variacion_m")
-        if v is not None:
-            tend = "↑" if v > 0 else ("↓" if v < 0 else "→")
-            lineas.append(f"{d['nombre']}: {d['altura_m']:.2f} m {tend}")
-        else:
-            lineas.append(f"{d['nombre']}: {d['altura_m']:.2f} m")
+        tend = "↑" if (v or 0) > 0 else ("↓" if (v or 0) < 0 else "→")
+        lineas.append(f"{d['nombre']}: {d['altura_m']:.2f} m {tend}")
 
     encabezado = "⚠️ ALERTA en el Paraná\n" if hay_alerta else "Alturas del Paraná y afluentes\n"
     texto = (
         encabezado
         + "Principales estaciones del litoral — " + fecha_str + "\n\n"
         + "\n".join(lineas)
-        + f"\n\nFuente: Prefectura Naval Argentina\n{FACEBOOK_PAGE_URL}"
+        + f"\n\nFuente: INA - Instituto Nacional del Agua\n{FACEBOOK_PAGE_URL}"
     )
 
     print(f"\nTexto:\n{texto}\n")
