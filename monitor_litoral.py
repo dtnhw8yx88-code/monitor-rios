@@ -36,10 +36,22 @@ ESTACIONES_LITORAL = [
 
 
 def fetch_datos_pna():
-    resp = requests.get(PNA_URL, timeout=20, headers={
-        "User-Agent": "Mozilla/5.0 (compatible; MonitorLitoral/1.0)"
-    })
-    resp.raise_for_status()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-AR,es;q=0.9",
+    }
+    last_exc = None
+    for intento in range(3):
+        try:
+            resp = requests.get(PNA_URL, timeout=40, headers=headers)
+            resp.raise_for_status()
+            break
+        except Exception as e:
+            last_exc = e
+            print(f"Intento {intento+1} fallido: {e}", file=sys.stderr)
+    else:
+        raise last_exc
 
     soup = BeautifulSoup(resp.text, "html.parser")
     por_nombre = {}
