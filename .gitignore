@@ -1,6 +1,23 @@
 config.json
 historico_*.csv
+historico.csv
 monitor.log
 monitor_error.log
 com.frigorifico.riosalado.plist
 instalar.sh
+
+# Caché de Python
+__pycache__/
+*.pyc
+
+# Imágenes generadas y de calibración (no son parte del código)
+calib_*.png
+calibracion.png
+preview_*.png
+prueba*.png
+informe_*.png
+mapa_*.png
+
+# Estado de runtime (se regenera en cada corrida)
+ultimo_*.json
+estado_incendios.json

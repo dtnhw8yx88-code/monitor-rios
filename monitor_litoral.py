@@ -17,6 +17,8 @@ from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 import requests
 
+import nim_client
+
 ARGENTINA_TZ = timezone(timedelta(hours=-3))
 BASE_DIR     = Path(__file__).parent
 CONFIG_FILE  = BASE_DIR / "config.json"
@@ -326,6 +328,18 @@ def main():
         + "Principales estaciones del litoral — " + fecha_str + "\n\n"
         + "\n".join(lineas)
         + f"\n\nFuente: {fuente_txt}\n{FACEBOOK_PAGE_URL}"
+    )
+
+    # NIM reescribe el texto en prosa mas natural, conservando alturas, nombres
+    # de estaciones, la fuente y el enlace. Si NIM falla o no esta disponible,
+    # devuelve el mismo texto (fallback), asi la publicacion nunca se rompe.
+    texto = nim_client.reescribir_boletin(
+        texto,
+        instrucciones_extra=(
+            "Conserva intactas la ultima linea de fuente y la URL. "
+            "Podes convertir la lista de estaciones en un parrafo natural, "
+            "pero sin cambiar ninguna altura en metros ni nombre de estacion."
+        ),
     )
 
     print(f"\nTexto:\n{texto}\n")

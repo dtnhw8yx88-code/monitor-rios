@@ -17,6 +17,15 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 import requests
+from requests.exceptions import ConnectionError as ReqConnectionError, Timeout as ReqTimeout
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_fixed,
+    retry_if_exception_type,
+)
+
+import nim_client
 
 ARGENTINA_TZ = timezone(timedelta(hours=-3))
 
@@ -52,6 +61,22 @@ API_PROXY = "https://www.santafe.gob.ar/idesf/vis-pre/proxyPTRxml.php?url="
 API_WFS   = "https://aswe.santafe.gov.ar/idesf/geoserver/RecursosHidricos/wfs/wfs"
 
 
+def _log_reintento(estado_retry):
+    print(
+        f"Santa Fe no responde (timeout/conexion), "
+        f"reintento {estado_retry.attempt_number}/3 en 30s...",
+        file=sys.stderr,
+    )
+
+
+@retry(
+    # Solo reintentar ante timeout o error de conexion; nunca ante 4xx (HTTPError).
+    retry=retry_if_exception_type((ReqConnectionError, ReqTimeout)),
+    stop=stop_after_attempt(3),          # maximo 3 intentos
+    wait=wait_fixed(30),                 # 30 segundos entre intentos
+    before_sleep=_log_reintento,
+    reraise=True,                        # tras el 3er fallo, re-lanza la excepcion
+)
 def fetch_datos(claves):
     session = requests.Session()
     session.headers.update({
@@ -132,105 +157,323 @@ def construir_bloque(datos):
     )
 
 
-def generar_comentario(resultados):
+def _es_hora(s):
+    """True si el string parece una hora HH:MM (columna 'hora' del formato antiguo)."""
+    parts = s.strip().split(":")
+    return len(parts) == 2 and all(p.isdigit() for p in parts)
+
+
+def leer_historico(path, dias=7):
+    """
+    Retorna las últimas N variaciones diarias del CSV histórico como lista de floats.
+
+    Maneja dos formatos que coexisten en los archivos:
+      Antiguo (6 col): fecha, hora, altura_m, variacion_m, estado, estacion
+      Nuevo   (5 col): fecha, altura_m, variacion_m, estado, estacion
+    La detección se hace fila a fila mirando si la columna 1 parece una hora (HH:MM).
+    """
+    if not path.exists():
+        return []
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        next(reader, None)          # saltar header
+        rows = list(reader)
+
+    variaciones = []
+    for row in rows[-dias:]:
+        if not row:
+            continue
+        try:
+            if len(row) >= 2 and _es_hora(row[1]):
+                # Formato antiguo: col[3] = variacion_m
+                v = float(row[3]) if len(row) > 3 and row[3] else 0.0
+            else:
+                # Formato nuevo: col[2] = variacion_m
+                v = float(row[2]) if len(row) > 2 and row[2] else 0.0
+        except (ValueError, IndexError):
+            v = 0.0
+        variaciones.append(v)
+    return variaciones
+
+
+def dias_sin_subir(variaciones):
+    """
+    Cuenta registros consecutivos desde el más reciente donde la variación
+    no superó el umbral de ruido (<=0.005 m). Un día con 0.0 cuenta como
+    'sin subir' — resolución de medición, no un pico.
+    """
+    count = 0
+    for v in reversed(variaciones):
+        if v <= 0.005:
+            count += 1
+        else:
+            break
+    return count
+
+
+def generar_comentario(resultados, precip=None, historicos=None):
+    """
+    Genera el comentario interpretativo siguiendo el orden geográfico norte→sur:
+    Tostado (Río Salado) → Calchaquí → El Bonete (Golondrina) → Paso de las Piedras.
+
+    Usa la tendencia histórica (últimos 7 registros) para no describir como
+    novedades situaciones que ya llevan varios días consolidadas.
+
+    Geografía clave:
+    - Tostado: Río Salado, alimentado desde Santiago del Estero por el oeste.
+    - El Bonete: Arroyo Golondrina (Ruta 98), tributario del Calchaquí.
+      Si lleva 5+ registros sin subir, el Golondrina ya pasó su pico — el agua
+      que ahora mueve el Calchaquí viene del propio cauce aguas arriba.
+    - Paso de las Piedras: salida del sistema. Siempre 'drenando', nunca 'evacuando'.
+    """
+    if historicos is None:
+        historicos = {}
+
     def get_est(clave):
         for r in resultados:
             if "error" not in r and clave.lower() in r["estacion"].lower():
                 return r
         return None
 
-    def clasif(v):
+    def trend(v):
         if v is None or abs(v) < 0.005:
-            return "estable", None
-        return ("leve" if abs(v) <= 0.03 else "marcada"), (v > 0)
+            return "estable"
+        return "sube" if v > 0 else "baja"
 
     T = get_est("tostado")
     B = get_est("bonete")
     C = get_est("calchaqui")
     P = get_est("piedras")
 
-    hay_alerta = any(r.get("estado") == "ALERTA" for r in resultados if "error" not in r)
+    at = T["altura_m"] if T else 0.0
+    ab = B["altura_m"] if B else 0.0
+    ac = C["altura_m"] if C else 0.0
+    ap = P["altura_m"] if P else 0.0
 
-    def info(est):
-        if not est:
-            return "estable", None, 0.0, "NORMAL"
-        v = est.get("variacion_m")
-        d, s = clasif(v)
-        return d, s, float(est.get("altura_m", 0)), est.get("estado", "NORMAL")
+    vt = T.get("variacion_m") if T else None
+    vb = B.get("variacion_m") if B else None
+    vc = C.get("variacion_m") if C else None
+    vp = P.get("variacion_m") if P else None
 
-    dt, st, at, et = info(T)
-    db, sb, ab, eb = info(B)
-    dc, sc, ac, ec = info(C)
-    dp, sp, ap, ep = info(P)
+    tt = trend(vt)
+    tb = trend(vb)
+    tc = trend(vc)
+    tp = trend(vp)
 
-    n_sube = sum(1 for s in [st, sb, sc] if s is True)
-    n_alerta_sube = sum(1 for s, e in [(sb, eb), (sc, ec)] if s is True and e == "ALERTA")
+    et = T["estado"] if T else "NORMAL"
+    eb = B["estado"] if B else "NORMAL"
+    ec = C["estado"] if C else "NORMAL"
+    ep = P["estado"] if P else "NORMAL"
 
-    oraciones = []
+    hay_alerta = any(e == "ALERTA" for e in [et, eb, ec, ep])
 
-    # Alertas activas
-    alertas = [nombre for nombre, est in [("Tostado", et), ("Calchaqui", ec), ("El Bonete", eb), ("Paso de las Piedras", ep)] if est == "ALERTA"]
+    hist_t = historicos.get("tostado", [])
+    hist_b = historicos.get("bonete", [])
+
+    # Días consecutivos (registros) sin subir, desde el más reciente
+    desc_t = dias_sin_subir(hist_t)
+    plano_b = dias_sin_subir(hist_b)
+
+    # Si el Bonete lleva 5+ registros sin subir → el Golondrina ya pasó su pico;
+    # el agua que ahora mueve el Calchaquí viene del propio cauce aguas arriba.
+    golondrina_ya_paso = plano_b >= 5
+
+    partes = []
+
+    # ── 1. Alertas ───────────────────────────────────────────────────────────
+    alertas = [n for n, e in [("Tostado", et), ("Calchaqui", ec), ("El Bonete", eb), ("Paso de las Piedras", ep)] if e == "ALERTA"]
     if alertas:
-        oraciones.append(f"{' y '.join(alertas)} {'esta' if len(alertas) == 1 else 'estan'} en alerta")
+        verbo = "esta" if len(alertas) == 1 else "estan"
+        if len(alertas) <= 2:
+            lista = " y ".join(alertas)
+        else:
+            lista = ", ".join(alertas[:-1]) + " y " + alertas[-1]
+        partes.append(f"{lista} {verbo} en alerta")
 
-    # Tostado: entrada principal del sistema
-    if dt != "estable":
-        if st:
+    # ── 2. Tostado — Río Salado (agua desde Santiago del Estero) ─────────────
+    if T:
+        if tt == "sube":
             if et == "ALERTA":
-                oraciones.append(f"Tostado sube ({at:.2f} m) — el Salado sigue empujando agua desde el oeste")
+                partes.append(
+                    f"el Rio Salado en Tostado sigue subiendo ({at:.2f} m, en alerta) — "
+                    f"hay nuevo aporte llegando desde el oeste"
+                )
             else:
-                oraciones.append(f"Tostado sube a {at:.2f} m")
+                partes.append(f"el Rio Salado en Tostado sube a {at:.2f} m")
         else:
+            # baja o estable
             if et == "ALERTA":
-                oraciones.append(f"Tostado cede un poco ({at:.2f} m) pero sigue en zona de alerta")
+                if desc_t >= 3:
+                    partes.append(
+                        f"el Rio Salado en Tostado mantiene una tendencia descendente sostenida — "
+                        f"viene cediendo de forma gradual y hoy se ubica en {at:.2f} m, todavia en alerta"
+                    )
+                else:
+                    partes.append(
+                        f"el Rio Salado en Tostado empieza a ceder ({at:.2f} m) aunque sigue en zona de alerta"
+                    )
             else:
-                oraciones.append(f"Tostado baja a {at:.2f} m")
-    else:
-        if et == "ALERTA":
-            oraciones.append(f"Tostado no cambia pero sigue alto ({at:.2f} m, en alerta)")
+                if desc_t >= 3:
+                    partes.append(
+                        f"el Rio Salado en Tostado ({at:.2f} m) viene bajando gradualmente"
+                    )
+                else:
+                    partes.append(f"el Rio Salado en Tostado baja a {at:.2f} m")
 
-    # Calchaqui y Bonete: aportes internos
-    internos_subiendo = []
-    internos_bajando  = []
-    if sc is True:
-        if ec == "ALERTA":
-            internos_subiendo.append(f"Calchaqui sube y esta en alerta ({ac:.2f} m)")
+    # ── 3. Calchaquí ─────────────────────────────────────────────────────────
+    if C:
+        if tc == "sube":
+            if ec == "ALERTA":
+                if golondrina_ya_paso:
+                    partes.append(
+                        f"el Calchaqui sigue subiendo ({ac:.2f} m, en alerta) — "
+                        f"recibe el agua que el Arroyo Golondrina fue volcando en los dias previos, "
+                        f"cuando alcanzo su pico en El Bonete"
+                    )
+                elif tb == "sube":
+                    # Golondrina activo: ambos subiendo, aporte directo en curso
+                    partes.append(
+                        f"el Calchaqui sube y esta en alerta ({ac:.2f} m) — "
+                        f"el Arroyo Golondrina sigue activo y le manda agua directamente"
+                    )
+                else:
+                    # Golondrina recientemente pico (< 5 dias), agua propagandose
+                    partes.append(
+                        f"el Calchaqui sube y esta en alerta ({ac:.2f} m) — "
+                        f"el agua del Golondrina que paso por El Bonete esta llegando"
+                    )
+            else:
+                if golondrina_ya_paso:
+                    partes.append(
+                        f"el Calchaqui sube ({ac:.2f} m) — recibe el agua que el Arroyo Golondrina aporto en los dias previos"
+                    )
+                elif tb == "sube":
+                    partes.append(
+                        f"el Calchaqui sube ({ac:.2f} m) — el Arroyo Golondrina le aporta agua directamente"
+                    )
+                else:
+                    partes.append(
+                        f"el Calchaqui sube ({ac:.2f} m) — el agua del Golondrina avanza aguas abajo"
+                    )
+        elif tc == "baja":
+            if ec == "ALERTA":
+                partes.append(
+                    f"el Calchaqui empieza a ceder ({ac:.2f} m), aunque todavia en alerta"
+                )
+            else:
+                partes.append(f"el Calchaqui baja a {ac:.2f} m")
         else:
-            internos_subiendo.append(f"Calchaqui sube ({ac:.2f} m)")
-    elif sc is False:
-        internos_bajando.append(f"Calchaqui baja ({ac:.2f} m)")
+            if ec == "ALERTA":
+                partes.append(f"el Calchaqui se mantiene en alerta ({ac:.2f} m) sin cambios por ahora")
 
-    if sb is True:
-        if eb == "ALERTA":
-            internos_subiendo.append(f"El Bonete sube y esta en alerta ({ab:.2f} m)")
+    # ── 4. El Bonete / Arroyo Golondrina ─────────────────────────────────────
+    if B:
+        if golondrina_ya_paso:
+            partes.append(
+                f"el Arroyo Golondrina en El Bonete ({ab:.2f} m) lleva ya varios dias estable o cediendo — "
+                f"el Golondrina alcanzo su pico en los dias previos y desde entonces drena gradualmente hacia el Calchaqui"
+            )
+        elif tb == "baja":
+            partes.append(
+                f"el Arroyo Golondrina en El Bonete empieza a ceder ({ab:.2f} m) — "
+                f"el agua que bajo por el Golondrina esta llegando al Calchaqui"
+            )
+        elif tb == "sube":
+            if eb == "ALERTA":
+                partes.append(
+                    f"el Arroyo Golondrina en El Bonete sigue subiendo ({ab:.2f} m, en alerta) — aporte activo hacia el Calchaqui"
+                )
+            else:
+                partes.append(
+                    f"el Arroyo Golondrina en El Bonete sube ({ab:.2f} m) y sigue aportando agua al Calchaqui"
+                )
         else:
-            internos_subiendo.append(f"El Bonete tambien sube ({ab:.2f} m)")
-    elif sb is False:
-        internos_bajando.append(f"El Bonete baja ({ab:.2f} m)")
+            partes.append(f"el Arroyo Golondrina en El Bonete se mantiene estable ({ab:.2f} m)")
 
-    for frase in internos_subiendo + internos_bajando:
-        oraciones.append(frase)
-
-    # Paso de las Piedras: resultado final
+    # ── 5. Paso de las Piedras — salida del sistema ───────────────────────────
     if P:
-        if sp is True:
-            oraciones.append(f"Paso de las Piedras sube a {ap:.2f} m — el agua llega al punto de cierre")
-            if n_alerta_sube >= 1:
-                oraciones.append("La situacion puede seguir empeorando si se mantienen los aportes del norte")
-        elif sp is False:
-            oraciones.append(f"Paso de las Piedras baja a {ap:.2f} m — el sistema esta drenando")
-            if n_sube >= 1 and n_alerta_sube >= 1:
-                oraciones.append("Ojo: con Calchaqui o Tostado todavia en alerta, ese descenso puede no durar")
-            elif n_sube >= 1:
-                oraciones.append("Hay aportes aguas arriba que podrian frenar esa baja")
-        else:
-            if n_sube >= 1:
-                oraciones.append(f"Paso de las Piedras se mantiene en {ap:.2f} m, el agua de arriba todavia no llego")
-            else:
-                oraciones.append(f"Paso de las Piedras estable en {ap:.2f} m")
+        calchaqui_presiona = (ec == "ALERTA" and tc == "sube")
 
-    cierre = "Situacion para seguir de cerca." if hay_alerta else "Sin novedades por ahora."
-    return ". ".join(oraciones) + ". " + cierre
+        if tp == "sube":
+            if ep == "ALERTA":
+                partes.append(
+                    f"Paso de las Piedras sube y esta en alerta ({ap:.2f} m) — "
+                    f"el agua de los aportes del norte llego al punto de cierre"
+                )
+            else:
+                partes.append(
+                    f"Paso de las Piedras sube a {ap:.2f} m — el agua de aguas arriba esta llegando"
+                )
+        else:
+            # baja o estable
+            if ep == "ALERTA":
+                partes.append(
+                    f"Paso de las Piedras en {ap:.2f} m (en alerta) — el sistema esta drenando"
+                )
+            else:
+                partes.append(
+                    f"Paso de las Piedras baja a {ap:.2f} m — el sistema esta drenando"
+                )
+            if calchaqui_presiona:
+                partes.append(
+                    "ese descenso puede frenarse si el aporte del Calchaqui en alerta sigue llegando"
+                )
+
+    # ── 6. Cierre con contexto de lluvia (última frase, nada después) ─────────
+    # El sistema está "subiendo" cuando la entrada principal (Tostado) crece,
+    # o cuando el punto de cierre (Paso de las Piedras) sube en alerta.
+    # El Calchaquí subiendo por efecto de demora del Golondrina no clasifica
+    # como crecida activa si el Salado ya está cediendo.
+    sistema_subiendo = tt == "sube" or (tp == "sube" and ep == "ALERTA")
+
+    if precip:
+        ll_tostado   = precip.get("Tostado",   {}).get("total", 0) or 0
+        ll_calchaqui = precip.get("Calchaqui", {}).get("total", 0) or 0
+        ll_vera      = precip.get("Vera",       {}).get("total", 0) or 0
+        ll_max = max(ll_tostado, ll_calchaqui, ll_vera)
+
+        if ll_max < 10:
+            if sistema_subiendo:
+                partes.append(
+                    "sin lluvias locales significativas previstas — la presion sobre el sistema viene del agua que llega desde aguas arriba"
+                )
+            else:
+                partes.append(
+                    "sin lluvias significativas previstas en la cuenca, el sistema deberia seguir drenando gradualmente"
+                )
+        elif ll_max < 30:
+            partes.append(
+                "las lluvias previstas en la zona son leves y no deberian cambiar el comportamiento del sistema"
+            )
+        elif ll_max < 60:
+            if hay_alerta:
+                partes.append(
+                    "hay lluvias moderadas previstas en la cuenca — con el sistema en alerta, podrian frenar el drenaje actual"
+                )
+            else:
+                partes.append(
+                    "hay lluvias moderadas previstas — a monitorear si los rios responden"
+                )
+        else:
+            if hay_alerta:
+                partes.append(
+                    "se esperan lluvias importantes en la cuenca — podrian recargar el sistema y empeorar la situacion en las estaciones en alerta"
+                )
+            else:
+                partes.append(
+                    "se esperan lluvias importantes — el sistema podria volver a cargarse"
+                )
+    else:
+        if hay_alerta:
+            partes.append("situacion para seguir de cerca")
+
+    if not partes:
+        return "Sin novedades relevantes."
+
+    texto = ". ".join(p[0].upper() + p[1:] for p in partes)
+    if not texto.endswith("."):
+        texto += "."
+    return texto
 
 
 def enviar_email(config, asunto, cuerpo_texto):
@@ -478,6 +721,10 @@ def main():
     claves = [e["clave"] for e in ESTACIONES]
     try:
         por_clave = fetch_datos(claves)
+    except (ReqConnectionError, ReqTimeout):
+        print("Servidor Santa Fe no disponible tras 3 intentos — abortando", file=sys.stderr)
+        notificacion_macos("Monitor Rios - Error", "Servidor Santa Fe no disponible tras 3 intentos")
+        sys.exit(1)
     except Exception as e:
         print(f"ERROR al consultar API: {e}", file=sys.stderr)
         notificacion_macos("Monitor Rios - Error", str(e))
@@ -553,10 +800,15 @@ def main():
         for d in datos_validos:
             cuerpo += construir_bloque(d) + "\n"
 
-        comentario = generar_comentario(resultados)
+        precip = fetch_precipitaciones()
+        historicos = {e["clave"]: leer_historico(e["archivo_historico"]) for e in ESTACIONES}
+        comentario = generar_comentario(resultados, precip, historicos)
+        # NIM reescribe el comentario en prosa mas natural, conservando todos los
+        # datos. Si NIM no esta disponible o falla, devuelve el mismo texto de la
+        # plantilla (fallback), asi la publicacion nunca se rompe.
+        comentario = nim_client.reescribir_boletin(comentario)
         cuerpo += comentario + "\n"
 
-        precip = fetch_precipitaciones()
         bloque_clima = comentario_precipitaciones(precip, hay_alerta)
         if bloque_clima:
             cuerpo += "\n" + bloque_clima + "\n"
