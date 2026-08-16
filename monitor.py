@@ -13,6 +13,7 @@ import sys
 from datetime import datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -521,11 +522,11 @@ def resumen_aguas_abajo(resultados):
             + ", ".join(partes) + ".")
 
 
-def enviar_email(config, asunto, cuerpo_texto):
+def enviar_email(config, asunto, cuerpo_texto, img_path=None):
     remitente = config["gmail_usuario"]
     password  = config["gmail_password"]
 
-    msg = MIMEMultipart("alternative")
+    msg = MIMEMultipart()
     msg["Subject"] = asunto
     msg["From"]    = f"Ganadera Fortines <{remitente}>"
     msg["To"]      = ", ".join(DESTINATARIOS)
@@ -541,6 +542,17 @@ def enviar_email(config, asunto, cuerpo_texto):
     )
 
     msg.attach(MIMEText(cuerpo_completo, "plain", "utf-8"))
+
+    # Adjuntar la MISMA imagen que se publica en Facebook. Si falla, el mail
+    # igual sale (solo texto) para no perder el envio.
+    if img_path is not None:
+        try:
+            with open(img_path, "rb") as f:
+                imagen = MIMEImage(f.read())
+            imagen.add_header("Content-Disposition", "attachment", filename="informe_rios.png")
+            msg.attach(imagen)
+        except Exception as e:
+            print(f"No se pudo adjuntar la imagen al mail: {e}", file=sys.stderr)
 
     with smtplib.SMTP("smtp.gmail.com", 587) as servidor:
         servidor.ehlo()
@@ -906,8 +918,11 @@ def main():
         else:
             asunto = f"GF | Rios {fecha_fmt} | Normal"
 
+        # Generar la imagen UNA sola vez: se usa igual en el mail y en Facebook.
+        img_path = generar_imagen_rios(datos_validos, fecha_fmt)
+
         try:
-            enviar_email(config, asunto, cuerpo)
+            enviar_email(config, asunto, cuerpo, img_path)
             print(f"\nMail enviado: {asunto}")
             notificacion_macos("Informe Rios enviado", asunto)
         except Exception as e:
@@ -921,9 +936,8 @@ def main():
         if bloque_clima:
             enviar_whatsapp(config, bloque_clima)
 
-        # Facebook: imagen generada + texto completo
+        # Facebook: la MISMA imagen que fue al mail + texto completo
         mensaje = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + cuerpo + f"\n{FACEBOOK_PAGE_URL}"
-        img_path = generar_imagen_rios(datos_validos, fecha_fmt)
         publicar_facebook(config, mensaje, img_path)
     else:
         print("\nSin datos nuevos, no se envia mail.")
