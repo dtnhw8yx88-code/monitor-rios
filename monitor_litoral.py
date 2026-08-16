@@ -26,6 +26,11 @@ CONFIG_FILE  = BASE_DIR / "config.json"
 FACEBOOK_PAGE_ID  = "1147087285146142"
 FACEBOOK_PAGE_URL = "facebook.com/profile.php?id=1147087285146142"
 
+# Publicacion del litoral (Parana) en Facebook. PAUSADA temporalmente a pedido:
+# el script puede correr y generar todo, pero NO postea mientras sea False.
+# Para reactivar el Parana, poner True.
+PUBLICAR_LITORAL = False
+
 PNA_URL  = "https://contenidosweb.prefecturanaval.gob.ar/alturas/"
 INA_BASE = "https://alerta.ina.gob.ar/a5"
 
@@ -343,7 +348,10 @@ def main():
     )
 
     print(f"\nTexto:\n{texto}\n")
-    publicar_facebook(config, texto, img_path)
+    if PUBLICAR_LITORAL:
+        publicar_facebook(config, texto, img_path)
+    else:
+        print("Publicacion del litoral PAUSADA (PUBLICAR_LITORAL=False). No se posteo a Facebook.")
     print("Listo.")
 
 

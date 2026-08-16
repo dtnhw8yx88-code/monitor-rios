@@ -39,12 +39,31 @@ DESTINATARIOS = [
     "gonzaloluna@ganaderafortines.com",
 ]
 
-# Orden del correo — "clave" es substring del nombre en la API
+# Orden geografico Norte -> Sur (Tostado hasta Santo Tome, a las puertas de Santa Fe).
+# "clave" es substring (sin tildes, en minuscula) del nombre que devuelve la API.
+# "curso" = curso de agua real. Tostado y del Bonete/Calchaqui hacia el sur son
+# tributarios o el propio Salado; El Bonete es el Arroyo Golondrina y Calchaqui
+# es el Rio Calchaqui (ambos alimentan al Salado, no son el Salado en si).
 ESTACIONES = [
-    {"nombre": "El Bonete (Golondrina, Vera)",        "clave": "bonete",   "archivo_ultimo": BASE_DIR / "ultimo_bonete.json",   "archivo_historico": BASE_DIR / "historico_bonete.csv"},
-    {"nombre": "Tostado (Rio Salado, R.N. 95)",       "clave": "tostado",  "archivo_ultimo": BASE_DIR / "ultimo_tostado.json",  "archivo_historico": BASE_DIR / "historico_tostado.csv"},
-    {"nombre": "Calchaqui (Rio Calchaqui, R.P. 38)",  "clave": "calchaqui","archivo_ultimo": BASE_DIR / "ultimo_calchaqui.json","archivo_historico": BASE_DIR / "historico_calchaqui.csv"},
-    {"nombre": "Paso de las Piedras (Rio Salado, La Penca)","clave": "piedras",  "archivo_ultimo": BASE_DIR / "ultimo_piedras.json",  "archivo_historico": BASE_DIR / "historico_piedras.csv"},
+    {"nombre": "Tostado (Rio Salado, R.N. 95)",            "curso": "Rio Salado",    "clave": "tostado",      "archivo_ultimo": BASE_DIR / "ultimo_tostado.json",   "archivo_historico": BASE_DIR / "historico_tostado.csv"},
+    {"nombre": "El Bonete (A° Golondrina)",              "curso": "A° Golondrina","clave": "bonete",       "archivo_ultimo": BASE_DIR / "ultimo_bonete.json",    "archivo_historico": BASE_DIR / "historico_bonete.csv"},
+    {"nombre": "Calchaqui (Rio Calchaqui, R.P. 38)",       "curso": "Rio Calchaqui", "clave": "calchaqui",    "archivo_ultimo": BASE_DIR / "ultimo_calchaqui.json", "archivo_historico": BASE_DIR / "historico_calchaqui.csv"},
+    {"nombre": "Paso de las Piedras (Rio Salado, La Penca)","curso": "Rio Salado",   "clave": "piedras",      "archivo_ultimo": BASE_DIR / "ultimo_piedras.json",   "archivo_historico": BASE_DIR / "historico_piedras.csv"},
+    {"nombre": "San Justo (Rio Salado, R.P. 2)",           "curso": "Rio Salado",    "clave": "san justo",    "archivo_ultimo": BASE_DIR / "ultimo_sanjusto.json",  "archivo_historico": BASE_DIR / "historico_sanjusto.csv"},
+    {"nombre": "Salado (R.P. 61)",                         "curso": "Rio Salado",    "clave": "salado rp 61", "archivo_ultimo": BASE_DIR / "ultimo_saladorp61.json","archivo_historico": BASE_DIR / "historico_saladorp61.csv"},
+    {"nombre": "Emilia (Rio Salado)",                      "curso": "Rio Salado",    "clave": "emilia",       "archivo_ultimo": BASE_DIR / "ultimo_emilia.json",    "archivo_historico": BASE_DIR / "historico_emilia.csv"},
+    {"nombre": "Recreo (Rio Salado)",                      "curso": "Rio Salado",    "clave": "recreo",       "archivo_ultimo": BASE_DIR / "ultimo_recreo.json",    "archivo_historico": BASE_DIR / "historico_recreo.csv"},
+    {"nombre": "Santo Tome (Rio Salado)",                  "curso": "Rio Salado",    "clave": "santo tome",   "archivo_ultimo": BASE_DIR / "ultimo_santotome.json", "archivo_historico": BASE_DIR / "historico_santotome.csv"},
+]
+
+# Estaciones nuevas del tramo aguas abajo (Paso de las Piedras -> Santo Tome), N->S.
+# Se usan para que la IA integre el tramo hacia Santa Fe en la narrativa.
+TRAMO_AGUAS_ABAJO = [
+    ("san justo",       "San Justo"),
+    ("salado (r.p. 61)", "Salado (R.P. 61)"),
+    ("emilia",          "Emilia"),
+    ("recreo",          "Recreo"),
+    ("santo tome",      "Santo Tome"),
 ]
 
 FACEBOOK_PAGE_URL = "facebook.com/profile.php?id=1147087285146142"
@@ -476,6 +495,32 @@ def generar_comentario(resultados, precip=None, historicos=None):
     return texto
 
 
+def resumen_aguas_abajo(resultados):
+    """
+    Linea factual con las estaciones del tramo Paso de las Piedras -> Santo Tome,
+    para que la IA la integre en la narrativa Norte->Sur. Devuelve "" si no hay datos.
+    La logica hidrologica fina de las 4 estaciones originales sigue en generar_comentario;
+    esto solo aporta los hechos del tramo nuevo hacia la ciudad de Santa Fe.
+    """
+    def get(sub):
+        for r in resultados:
+            if "error" not in r and sub in r["estacion"].lower():
+                return r
+        return None
+
+    partes = []
+    for sub, display in TRAMO_AGUAS_ABAJO:
+        r = get(sub)
+        if not r:
+            continue
+        estado = "en alerta" if r.get("estado") == "ALERTA" else "normal"
+        partes.append(f"{display} {r['altura_m']:.2f} m ({estado})")
+    if not partes:
+        return ""
+    return ("Aguas abajo, siguiendo el Salado hacia la ciudad de Santa Fe: "
+            + ", ".join(partes) + ".")
+
+
 def enviar_email(config, asunto, cuerpo_texto):
     remitente = config["gmail_usuario"]
     password  = config["gmail_password"]
@@ -523,70 +568,105 @@ def _font(size, bold=False):
 
 
 def generar_imagen_rios(datos_validos, fecha_str):
-    template = BASE_DIR / "template_rios.png"
-    img  = Image.open(template).convert("RGB")
+    """
+    Dibuja una tabla dinamica con TODAS las estaciones (Norte -> Sur), sin plantilla
+    fija. Escala en alto segun la cantidad de estaciones (soporta 4 o 9 o las que sean).
+    """
+    AZUL     = (26,  58,  92)
+    AZUL2    = (200, 214, 230)
+    VERDE    = (30, 130,  76)
+    ROJO     = (176,  0,  32)
+    BLANCO   = (255, 255, 255)
+    OSCURO   = (40,  40,  40)
+    GRISFILA = (238, 241, 245)
+    LINEA    = (210, 216, 224)
+
+    W        = 1000
+    MARGEN   = 40
+    H_HEADER = 150
+    H_COLHD  = 54
+    ROW_H    = 74
+    H_FOOTER = 66
+    n = len(datos_validos)
+    H = H_HEADER + H_COLHD + n * ROW_H + H_FOOTER
+
+    img  = Image.new("RGB", (W, H), BLANCO)
     draw = ImageDraw.Draw(img)
-    W, H = img.size
 
-    AZUL   = (26,  58,  92)
-    VERDE  = (30, 130,  76)
-    ROJO   = (176,  0,  32)
-    BLANCO = (255, 255, 255)
-    OSCURO = (40,  40,  40)
+    f_titulo = _font(40, bold=True)
+    f_sub    = _font(19)
+    f_fecha  = _font(23, bold=True)
+    f_colh   = _font(18, bold=True)
+    f_est    = _font(24, bold=True)
+    f_alt    = _font(30, bold=True)
+    f_var    = _font(19, bold=True)
+    f_badge  = _font(16, bold=True)
+    f_foot   = _font(15)
 
-    f_fecha  = _font(int(W * 0.026), bold=True)
-    f_altura = _font(int(W * 0.038), bold=True)
-    f_var    = _font(int(W * 0.026), bold=True)
-    f_estado = _font(int(W * 0.024), bold=True)
-    f_tend   = _font(int(W * 0.021))
+    # Centros X de las columnas de valores
+    X_EST   = MARGEN
+    X_ALT   = int(W * 0.55)
+    X_VAR   = int(W * 0.71)
+    X_BADGE = int(W * 0.88)
 
-    # Fecha
-    draw.text((int(W * 0.535), int(H * 0.360)),
-              fecha_str, font=f_fecha, fill=AZUL, anchor="mm")
+    # ── Banda superior ───────────────────────────────────────────────
+    draw.rectangle([0, 0, W, H_HEADER], fill=AZUL)
+    draw.text((MARGEN, 32), "Alturas del Rio Salado", font=f_titulo, fill=BLANCO)
+    draw.text((MARGEN, 92),
+              "Tostado  ->  Santo Tome   |   Fundacion Humedales y Pastizales",
+              font=f_sub, fill=AZUL2)
+    draw.text((W - MARGEN, 44), fecha_str, font=f_fecha, fill=BLANCO, anchor="rm")
 
-    # Filas de estaciones
-    ROW_CY     = [0.485, 0.585, 0.675, 0.748]
-    COL_ALTURA = 0.420
-    COL_VAR    = 0.645
-    COL_ESTADO = 0.855
+    # ── Encabezado de columnas ───────────────────────────────────────
+    yc = H_HEADER
+    draw.text((X_EST,   yc + H_COLHD // 2), "Estacion (Norte -> Sur)", font=f_colh, fill=AZUL, anchor="lm")
+    draw.text((X_ALT,   yc + H_COLHD // 2), "Altura",    font=f_colh, fill=AZUL, anchor="mm")
+    draw.text((X_VAR,   yc + H_COLHD // 2), "Variacion", font=f_colh, fill=AZUL, anchor="mm")
+    draw.text((X_BADGE, yc + H_COLHD // 2), "Estado",    font=f_colh, fill=AZUL, anchor="mm")
+    draw.line([MARGEN, yc + H_COLHD, W - MARGEN, yc + H_COLHD], fill=AZUL, width=2)
 
-    for i, d in enumerate(datos_validos[:4]):
-        cy = int(H * ROW_CY[i])
-        es_alerta = d.get("estado") == "ALERTA"
+    # ── Filas ────────────────────────────────────────────────────────
+    y0 = H_HEADER + H_COLHD
+    for i, d in enumerate(datos_validos):
+        top = y0 + i * ROW_H
+        cy  = top + ROW_H // 2
+        if i % 2 == 0:
+            draw.rectangle([0, top, W, top + ROW_H], fill=GRISFILA)
 
-        draw.text((int(W * COL_ALTURA), cy),
-                  f"{d['altura_m']:.2f}", font=f_altura, fill=AZUL, anchor="mm")
+        nombre_corto = d["estacion"].split(" (")[0]
+        curso = d.get("curso", "")
+        # Aclarar entre parentesis solo los tributarios (no el propio Salado).
+        if curso and "salado" not in curso.lower():
+            draw.text((X_EST, cy - 11), nombre_corto, font=f_est, fill=OSCURO, anchor="lm")
+            draw.text((X_EST, cy + 15), curso, font=f_foot, fill=(90, 105, 120), anchor="lm")
+        else:
+            draw.text((X_EST, cy), nombre_corto, font=f_est, fill=OSCURO, anchor="lm")
+        draw.text((X_ALT, cy), f"{d['altura_m']:.2f} m", font=f_alt, fill=AZUL, anchor="mm")
 
         v = d.get("variacion_m")
-        if v is not None:
-            if v == 0:
-                draw.text((int(W * COL_VAR), cy), "Sin cambios", font=f_var, fill=OSCURO, anchor="mm")
-            else:
-                flecha  = "+" if v > 0 else "-"
-                color_v = VERDE if v > 0 else ROJO
-                draw.text((int(W * COL_VAR), cy),
-                          f"{flecha}{abs(v):.2f} m", font=f_var, fill=color_v, anchor="mm")
+        if v is None:
+            draw.text((X_VAR, cy), "s/d", font=f_var, fill=OSCURO, anchor="mm")
+        elif v == 0:
+            draw.text((X_VAR, cy), "sin cambios", font=f_var, fill=OSCURO, anchor="mm")
+        else:
+            signo = "+" if v > 0 else "-"
+            draw.text((X_VAR, cy), f"{signo}{abs(v):.2f} m", font=f_var,
+                      fill=VERDE if v > 0 else ROJO, anchor="mm")
 
-        v_val = d.get("variacion_m") or 0
-        tendencia_badge = "Sube" if v_val > 0 else ("Baja" if v_val < 0 else "Sin cambios")
-        estado_txt = "ALERTA" if es_alerta else "NORMAL"
+        es_alerta = d.get("estado") == "ALERTA"
+        bw, bh = 150, 40
+        bbox = [X_BADGE - bw // 2, cy - bh // 2, X_BADGE + bw // 2, cy + bh // 2]
+        draw.rounded_rectangle(bbox, radius=10, fill=ROJO if es_alerta else VERDE)
+        draw.text((X_BADGE, cy), "ALERTA" if es_alerta else "NORMAL",
+                  font=f_badge, fill=BLANCO, anchor="mm")
 
-        bw = int(W * 0.130); bh = int(H * 0.052)
-        bx = int(W * COL_ESTADO)
-        bbox = [bx - bw//2, cy - bh//2, bx + bw//2, cy + bh//2]
-        draw.rounded_rectangle(bbox, radius=int(bh * 0.25),
-                                fill=ROJO if es_alerta else VERDE)
-        draw.text((bx, cy - int(bh * 0.18)), estado_txt,
-                  font=f_estado, fill=BLANCO, anchor="mm")
-        draw.text((bx, cy + int(bh * 0.22)), tendencia_badge,
-                  font=_font(int(W * 0.018)), fill=BLANCO, anchor="mm")
-
-    # Tendencia: solo label corto en el recuadro izquierdo
-    n_sube = sum(1 for d in datos_validos if (d.get("variacion_m") or 0) > 0)
-    n_baja = sum(1 for d in datos_validos if (d.get("variacion_m") or 0) < 0)
-    tend_corta = "En ascenso" if n_sube > n_baja else ("En descenso" if n_baja > n_sube else "Estable")
-    draw.text((int(W * 0.375), int(H * 0.875)),
-              tend_corta, font=f_tend, fill=AZUL, anchor="mm")
+    # ── Pie ──────────────────────────────────────────────────────────
+    fy = H - H_FOOTER
+    draw.line([MARGEN, fy, W - MARGEN, fy], fill=LINEA, width=1)
+    draw.text((MARGEN, fy + H_FOOTER // 2),
+              "Fuente: Sec. de Recursos Hidricos - Santa Fe", font=f_foot, fill=OSCURO, anchor="lm")
+    gen = datetime.now(ARGENTINA_TZ).strftime("Generado %d/%m/%Y %H:%M")
+    draw.text((W - MARGEN, fy + H_FOOTER // 2), gen, font=f_foot, fill=OSCURO, anchor="rm")
 
     img_path = BASE_DIR / "informe_rios.png"
     img.save(img_path)
@@ -761,6 +841,7 @@ def main():
 
         datos = {
             "estacion":   nombre,
+            "curso":      estacion.get("curso", ""),
             "fecha":      fecha_dato,
             "altura_m":   altura,
             "variacion_m": variacion,
@@ -803,6 +884,10 @@ def main():
         precip = fetch_precipitaciones()
         historicos = {e["clave"]: leer_historico(e["archivo_historico"]) for e in ESTACIONES}
         comentario = generar_comentario(resultados, precip, historicos)
+        # Sumar el tramo nuevo (Paso de las Piedras -> Santo Tome) como hechos para la IA.
+        tramo = resumen_aguas_abajo(resultados)
+        if tramo:
+            comentario = comentario + " " + tramo
         # NIM reescribe el comentario en prosa mas natural, conservando todos los
         # datos. Si NIM no esta disponible o falla, devuelve el mismo texto de la
         # plantilla (fallback), asi la publicacion nunca se rompe.
