@@ -605,7 +605,7 @@ def generar_imagen_rios(datos_validos, fecha_str):
     img  = Image.new("RGB", (W, H), BLANCO)
     draw = ImageDraw.Draw(img)
 
-    f_titulo = _font(40, bold=True)
+    f_marca  = _font(32, bold=True)
     f_sub    = _font(19)
     f_fecha  = _font(23, bold=True)
     f_colh   = _font(18, bold=True)
@@ -623,11 +623,11 @@ def generar_imagen_rios(datos_validos, fecha_str):
 
     # ── Banda superior ───────────────────────────────────────────────
     draw.rectangle([0, 0, W, H_HEADER], fill=AZUL)
-    draw.text((MARGEN, 32), "Alturas del Rio Salado", font=f_titulo, fill=BLANCO)
-    draw.text((MARGEN, 92),
-              "Tostado  ->  Santo Tome   |   Fundacion Humedales y Pastizales",
+    draw.text((MARGEN, 34), "Fundacion Humedales y Pastizales", font=f_marca, fill=BLANCO)
+    draw.text((MARGEN, 94),
+              "Alturas del Rio Salado   |   Tostado -> Santo Tome",
               font=f_sub, fill=AZUL2)
-    draw.text((W - MARGEN, 44), fecha_str, font=f_fecha, fill=BLANCO, anchor="rm")
+    draw.text((W - MARGEN, 42), fecha_str, font=f_fecha, fill=BLANCO, anchor="rm")
 
     # ── Encabezado de columnas ───────────────────────────────────────
     yc = H_HEADER
@@ -801,6 +801,29 @@ def cargar_config():
     return config
 
 
+# Marcador para publicar como maximo una vez por dia (evita posts duplicados).
+POST_MARKER = BASE_DIR / "ultimo_post_facebook.json"
+
+
+def ya_publico_hoy():
+    """True si ya se publico un boletin hoy (fecha local Argentina)."""
+    if not POST_MARKER.exists():
+        return False
+    try:
+        d = json.loads(POST_MARKER.read_text())
+    except Exception:
+        return False
+    return d.get("fecha") == datetime.now(ARGENTINA_TZ).strftime("%Y-%m-%d")
+
+
+def marcar_publicado_hoy():
+    hoy = datetime.now(ARGENTINA_TZ).strftime("%Y-%m-%d")
+    try:
+        POST_MARKER.write_text(json.dumps({"fecha": hoy}))
+    except Exception as e:
+        print(f"No se pudo guardar el marcador de publicacion: {e}", file=sys.stderr)
+
+
 def main():
     print(f"[{datetime.now(ARGENTINA_TZ).strftime('%Y-%m-%d %H:%M:%S')}] Monitor Rios - Ganadera Fortines")
 
@@ -888,8 +911,11 @@ def main():
     datos_validos = [r for r in resultados if "error" not in r]
 
     forzar = os.environ.get("FORCE_PUBLISH", "").lower() == "true"
+    publico_hoy = ya_publico_hoy()
 
-    if (hay_dato_nuevo or forzar) and datos_validos:
+    # Publicar solo si se fuerza, o si hay dato nuevo y todavia NO se publico hoy.
+    # Evita los posts duplicados cuando el script corre varias veces en el mismo dia.
+    if datos_validos and (forzar or (hay_dato_nuevo and not publico_hoy)):
         cuerpo = ""
         for d in datos_validos:
             cuerpo += construir_bloque(d) + "\n"
@@ -940,8 +966,12 @@ def main():
         # Facebook: la MISMA imagen que fue al mail + texto completo
         mensaje = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + cuerpo + f"\n{FACEBOOK_PAGE_URL}"
         publicar_facebook(config, mensaje, img_path)
+
+        marcar_publicado_hoy()   # registrar que ya se publico hoy (evita duplicados)
+    elif datos_validos and hay_dato_nuevo and publico_hoy:
+        print("\nYa se publico hoy; no se vuelve a publicar (usa FORCE_PUBLISH=true para forzar).")
     else:
-        print("\nSin datos nuevos, no se envia mail.")
+        print("\nSin datos nuevos, no se envia.")
 
     print("\nListo.")
 
