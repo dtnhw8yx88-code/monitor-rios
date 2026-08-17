@@ -53,6 +53,11 @@ SYSTEM_PROMPT_REESCRITURA = (
     "- No agregues informacion que no este en el texto original.\n"
     "- Manten un largo parecido; nunca mas largo que el original.\n"
     "- No uses markdown, ni titulos, ni vinetas. Texto corrido.\n"
+    "- NO es una carta: no agregues saludos de apertura (como 'Queridos vecinos'), "
+    "ni despedidas, firmas o cierres (como 'Atentamente', 'Saludos', 'Fundacion "
+    "Ambiental' o un nombre).\n"
+    "- NUNCA uses marcadores de posicion como '[Tu nombre]' ni firmes el texto.\n"
+    "- Escribi como un parte informativo en tercera persona, no como una carta personal.\n"
     "- Devolve SOLO el boletin reescrito, sin comentarios ni aclaraciones tuyas."
 )
 
