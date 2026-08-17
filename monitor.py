@@ -51,7 +51,7 @@ ESTACIONES = [
     {"nombre": "Calchaqui (Rio Calchaqui, R.P. 38)",       "curso": "Rio Calchaqui", "clave": "calchaqui",    "archivo_ultimo": BASE_DIR / "ultimo_calchaqui.json", "archivo_historico": BASE_DIR / "historico_calchaqui.csv"},
     {"nombre": "Paso de las Piedras (Rio Salado, La Penca)","curso": "Rio Salado",   "clave": "piedras",      "archivo_ultimo": BASE_DIR / "ultimo_piedras.json",   "archivo_historico": BASE_DIR / "historico_piedras.csv"},
     {"nombre": "San Justo (Rio Salado, R.P. 2)",           "curso": "Rio Salado",    "clave": "san justo",    "archivo_ultimo": BASE_DIR / "ultimo_sanjusto.json",  "archivo_historico": BASE_DIR / "historico_sanjusto.csv"},
-    {"nombre": "Salado (R.P. 61)",                         "curso": "Rio Salado",    "clave": "salado rp 61", "archivo_ultimo": BASE_DIR / "ultimo_saladorp61.json","archivo_historico": BASE_DIR / "historico_saladorp61.csv"},
+    {"nombre": "Ruta 61 (Rio Salado)",                     "curso": "Rio Salado",    "clave": "salado rp 61", "archivo_ultimo": BASE_DIR / "ultimo_saladorp61.json","archivo_historico": BASE_DIR / "historico_saladorp61.csv"},
     {"nombre": "Emilia (Rio Salado)",                      "curso": "Rio Salado",    "clave": "emilia",       "archivo_ultimo": BASE_DIR / "ultimo_emilia.json",    "archivo_historico": BASE_DIR / "historico_emilia.csv"},
     {"nombre": "Recreo (Rio Salado)",                      "curso": "Rio Salado",    "clave": "recreo",       "archivo_ultimo": BASE_DIR / "ultimo_recreo.json",    "archivo_historico": BASE_DIR / "historico_recreo.csv"},
     {"nombre": "Santo Tome (Rio Salado)",                  "curso": "Rio Salado",    "clave": "santo tome",   "archivo_ultimo": BASE_DIR / "ultimo_santotome.json", "archivo_historico": BASE_DIR / "historico_santotome.csv"},
@@ -61,7 +61,7 @@ ESTACIONES = [
 # Se usan para que la IA integre el tramo hacia Santa Fe en la narrativa.
 TRAMO_AGUAS_ABAJO = [
     ("san justo",       "San Justo"),
-    ("salado (r.p. 61)", "Salado (R.P. 61)"),
+    ("ruta 61",         "Ruta 61"),
     ("emilia",          "Emilia"),
     ("recreo",          "Recreo"),
     ("santo tome",      "Santo Tome"),
