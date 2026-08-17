@@ -51,7 +51,7 @@ ESTACIONES = [
     {"nombre": "Calchaqui (Rio Calchaqui, R.P. 38)",       "curso": "Rio Calchaqui", "clave": "calchaqui",    "archivo_ultimo": BASE_DIR / "ultimo_calchaqui.json", "archivo_historico": BASE_DIR / "historico_calchaqui.csv"},
     {"nombre": "Paso de las Piedras (Rio Salado, La Penca)","curso": "Rio Salado",   "clave": "piedras",      "archivo_ultimo": BASE_DIR / "ultimo_piedras.json",   "archivo_historico": BASE_DIR / "historico_piedras.csv"},
     {"nombre": "San Justo (Rio Salado, R.P. 2)",           "curso": "Rio Salado",    "clave": "san justo",    "archivo_ultimo": BASE_DIR / "ultimo_sanjusto.json",  "archivo_historico": BASE_DIR / "historico_sanjusto.csv"},
-    {"nombre": "Ruta 61 (Rio Salado)",                     "curso": "Rio Salado",    "clave": "salado rp 61", "archivo_ultimo": BASE_DIR / "ultimo_saladorp61.json","archivo_historico": BASE_DIR / "historico_saladorp61.csv"},
+    {"nombre": "Angeloni (RP 61)", "etiqueta": "Angeloni (RP 61)", "curso": "Rio Salado", "clave": "salado rp 61", "archivo_ultimo": BASE_DIR / "ultimo_saladorp61.json","archivo_historico": BASE_DIR / "historico_saladorp61.csv"},
     {"nombre": "Emilia (Rio Salado)",                      "curso": "Rio Salado",    "clave": "emilia",       "archivo_ultimo": BASE_DIR / "ultimo_emilia.json",    "archivo_historico": BASE_DIR / "historico_emilia.csv"},
     {"nombre": "Recreo (Rio Salado)",                      "curso": "Rio Salado",    "clave": "recreo",       "archivo_ultimo": BASE_DIR / "ultimo_recreo.json",    "archivo_historico": BASE_DIR / "historico_recreo.csv"},
     {"nombre": "Santo Tome (Rio Salado)",                  "curso": "Rio Salado",    "clave": "santo tome",   "archivo_ultimo": BASE_DIR / "ultimo_santotome.json", "archivo_historico": BASE_DIR / "historico_santotome.csv"},
@@ -61,7 +61,7 @@ ESTACIONES = [
 # Se usan para que la IA integre el tramo hacia Santa Fe en la narrativa.
 TRAMO_AGUAS_ABAJO = [
     ("san justo",       "San Justo"),
-    ("ruta 61",         "Ruta 61"),
+    ("angeloni",        "Angeloni (RP 61)"),
     ("emilia",          "Emilia"),
     ("recreo",          "Recreo"),
     ("santo tome",      "Santo Tome"),
@@ -645,7 +645,7 @@ def generar_imagen_rios(datos_validos, fecha_str):
         if i % 2 == 0:
             draw.rectangle([0, top, W, top + ROW_H], fill=GRISFILA)
 
-        nombre_corto = d["estacion"].split(" (")[0]
+        nombre_corto = d.get("etiqueta") or d["estacion"].split(" (")[0]
         curso = d.get("curso", "")
         # Aclarar entre parentesis solo los tributarios (no el propio Salado).
         if curso and "salado" not in curso.lower():
@@ -854,6 +854,7 @@ def main():
         datos = {
             "estacion":   nombre,
             "curso":      estacion.get("curso", ""),
+            "etiqueta":   estacion.get("etiqueta", ""),
             "fecha":      fecha_dato,
             "altura_m":   altura,
             "variacion_m": variacion,
