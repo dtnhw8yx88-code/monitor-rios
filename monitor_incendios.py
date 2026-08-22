@@ -10,6 +10,8 @@ import io
 import json
 import sys
 import requests
+from requests.exceptions import ConnectionError as ReqConnError, Timeout as ReqTimeout
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -42,6 +44,12 @@ CIUDADES = {
 }
 
 
+@retry(
+    retry=retry_if_exception_type((ReqConnError, ReqTimeout)),
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(20),
+    reraise=True,
+)
 def fetch_focos(firms_key):
     url = (
         f"https://firms.modaps.eosdis.nasa.gov/api/area/csv"

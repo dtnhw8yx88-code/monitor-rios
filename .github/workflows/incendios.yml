@@ -19,7 +19,7 @@ jobs:
           python-version: '3.12'
 
       - name: Instalar dependencias
-        run: pip install requests matplotlib pyproj
+        run: pip install requests matplotlib pyproj tenacity
 
       - name: Crear config.json
         env:
