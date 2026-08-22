@@ -1,8 +1,7 @@
 name: Monitor Litoral
 
 on:
-  schedule:
-    - cron: '0 12 * * *'   # 09:00 hs Argentina (UTC-3)
+  # Parana PAUSADO: se saco el horario automatico. Solo corre a mano si hace falta.
   workflow_dispatch:
 
 jobs:

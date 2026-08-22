@@ -57,12 +57,19 @@ jobs:
             ultimo_tostado.json
             ultimo_calchaqui.json
             ultimo_piedras.json
+            ultimo_sanjusto.json
+            ultimo_saladorp61.json
+            ultimo_emilia.json
+            ultimo_recreo.json
+            ultimo_santotome.json
+            ultimo_post_facebook.json
           key: ultimos-registros-${{ github.run_id }}
           restore-keys: ultimos-registros-
 
       - name: Correr monitor
         env:
           FORCE_PUBLISH: ${{ github.event.inputs.forzar }}
+          NVIDIA_NIM_API_KEY: ${{ secrets.NVIDIA_NIM_API_KEY }}
         run: python monitor.py
 
       - name: Guardar ultimo registro
@@ -74,4 +81,10 @@ jobs:
             ultimo_tostado.json
             ultimo_calchaqui.json
             ultimo_piedras.json
+            ultimo_sanjusto.json
+            ultimo_saladorp61.json
+            ultimo_emilia.json
+            ultimo_recreo.json
+            ultimo_santotome.json
+            ultimo_post_facebook.json
           key: ultimos-registros-${{ github.run_id }}
