@@ -152,7 +152,16 @@ def guardar_historico(path, datos):
 
 
 def construir_bloque(datos):
+    if datos.get("sin_dato"):
+        return (
+            f"{datos['estacion']}\n"
+            f"  Altura:    sin dato\n"
+            f"  Variacion: sin dato\n"
+            f"  Estado:    sin dato\n"
+        )
     altura     = f"{datos['altura_m']:.2f} m"
+    if datos.get("sin_actualizar"):
+        altura += " (sin actualizar)"
     variacion  = f"{datos['variacion_m']:+.2f} m" if datos.get("variacion_m") is not None else "s/d"
     estado     = datos["estado"]
     alerta_tag = "  *** ALERTA ***" if estado == "ALERTA" else ""
@@ -653,24 +662,36 @@ def generar_imagen_rios(datos_validos, fecha_str):
             draw.text((X_EST, cy + 15), curso, font=f_foot, fill=(90, 105, 120), anchor="lm")
         else:
             draw.text((X_EST, cy), nombre_corto, font=f_est, fill=OSCURO, anchor="lm")
-        draw.text((X_ALT, cy), f"{d['altura_m']:.2f} m", font=f_alt, fill=AZUL, anchor="mm")
-
-        v = d.get("variacion_m")
-        if v is None:
-            draw.text((X_VAR, cy), "s/d", font=f_var, fill=OSCURO, anchor="mm")
-        elif v == 0:
-            draw.text((X_VAR, cy), "sin cambios", font=f_var, fill=OSCURO, anchor="mm")
+        if d.get("sin_dato"):
+            draw.text((X_ALT, cy), "s/d", font=f_alt, fill=(140, 140, 140), anchor="mm")
         else:
-            signo = "+" if v > 0 else "-"
-            draw.text((X_VAR, cy), f"{signo}{abs(v):.2f} m", font=f_var,
-                      fill=VERDE if v > 0 else ROJO, anchor="mm")
+            draw.text((X_ALT, cy), f"{d['altura_m']:.2f} m", font=f_alt, fill=AZUL, anchor="mm")
 
-        es_alerta = d.get("estado") == "ALERTA"
+        if d.get("sin_dato"):
+            draw.text((X_VAR, cy), "s/d", font=f_var, fill=OSCURO, anchor="mm")
+        elif d.get("sin_actualizar"):
+            draw.text((X_VAR, cy), "sin actualizar", font=f_var, fill=(150, 120, 40), anchor="mm")
+        else:
+            v = d.get("variacion_m")
+            if v is None:
+                draw.text((X_VAR, cy), "s/d", font=f_var, fill=OSCURO, anchor="mm")
+            elif v == 0:
+                draw.text((X_VAR, cy), "sin cambios", font=f_var, fill=OSCURO, anchor="mm")
+            else:
+                signo = "+" if v > 0 else "-"
+                draw.text((X_VAR, cy), f"{signo}{abs(v):.2f} m", font=f_var,
+                          fill=VERDE if v > 0 else ROJO, anchor="mm")
+
         bw, bh = 150, 40
         bbox = [X_BADGE - bw // 2, cy - bh // 2, X_BADGE + bw // 2, cy + bh // 2]
-        draw.rounded_rectangle(bbox, radius=10, fill=ROJO if es_alerta else VERDE)
-        draw.text((X_BADGE, cy), "ALERTA" if es_alerta else "NORMAL",
-                  font=f_badge, fill=BLANCO, anchor="mm")
+        if d.get("sin_dato"):
+            draw.rounded_rectangle(bbox, radius=10, fill=(160, 160, 160))
+            draw.text((X_BADGE, cy), "SIN DATO", font=f_badge, fill=BLANCO, anchor="mm")
+        else:
+            es_alerta = d.get("estado") == "ALERTA"
+            draw.rounded_rectangle(bbox, radius=10, fill=ROJO if es_alerta else VERDE)
+            draw.text((X_BADGE, cy), "ALERTA" if es_alerta else "NORMAL",
+                      font=f_badge, fill=BLANCO, anchor="mm")
 
     # ── Pie ──────────────────────────────────────────────────────────
     fy = H - H_FOOTER
@@ -857,8 +878,29 @@ def main():
         print(f"\n--- {nombre} ---")
 
         if not props or props.get("altura") is None:
-            print(f"  Sin dato disponible")
-            resultados.append({"estacion": nombre, "error": "sin dato"})
+            # La fuente no devolvio dato: usar el ultimo valor conocido, marcado
+            # "sin_actualizar", para no perder la estacion del informe.
+            ult = cargar_ultimo(estacion["archivo_ultimo"])
+            if ult and ult.get("altura_m") is not None:
+                print(f"  Sin dato actual -> uso ultimo conocido: {ult['altura_m']} m")
+                resultados.append({
+                    "estacion":       nombre,
+                    "curso":          estacion.get("curso", ""),
+                    "etiqueta":       estacion.get("etiqueta", ""),
+                    "fecha":          ult.get("fecha", ""),
+                    "altura_m":       ult["altura_m"],
+                    "variacion_m":    None,
+                    "estado":         ult.get("estado", "NORMAL"),
+                    "sin_actualizar": True,
+                })
+            else:
+                print(f"  Sin dato disponible (ni ultimo conocido)")
+                resultados.append({
+                    "estacion": nombre,
+                    "curso":    estacion.get("curso", ""),
+                    "etiqueta": estacion.get("etiqueta", ""),
+                    "sin_dato": True,
+                })
             continue
 
         altura    = float(props["altura"])
@@ -908,7 +950,11 @@ def main():
 
         resultados.append(datos)
 
-    datos_validos = [r for r in resultados if "error" not in r]
+    # Frescas (dato de hoy) para la logica y la narrativa; todas (incluye las
+    # "sin actualizar" y "sin dato") para mostrar en el informe y la imagen.
+    datos_validos = [r for r in resultados if not r.get("sin_actualizar") and not r.get("sin_dato")]
+    datos_display = resultados
+    hay_alerta = any(r.get("estado") == "ALERTA" for r in datos_display)
 
     forzar = os.environ.get("FORCE_PUBLISH", "").lower() == "true"
     publico_hoy = ya_publico_hoy()
@@ -917,14 +963,14 @@ def main():
     # Evita los posts duplicados cuando el script corre varias veces en el mismo dia.
     if datos_validos and (forzar or (hay_dato_nuevo and not publico_hoy)):
         cuerpo = ""
-        for d in datos_validos:
+        for d in datos_display:
             cuerpo += construir_bloque(d) + "\n"
 
         precip = fetch_precipitaciones()
         historicos = {e["clave"]: leer_historico(e["archivo_historico"]) for e in ESTACIONES}
-        comentario = generar_comentario(resultados, precip, historicos)
+        comentario = generar_comentario(datos_validos, precip, historicos)
         # Sumar el tramo nuevo (Paso de las Piedras -> Santo Tome) como hechos para la IA.
-        tramo = resumen_aguas_abajo(resultados)
+        tramo = resumen_aguas_abajo(datos_validos)
         if tramo:
             comentario = comentario + " " + tramo
         # NIM reescribe el comentario en prosa mas natural, conservando todos los
@@ -946,7 +992,7 @@ def main():
             asunto = f"GF | Rios {fecha_fmt} | Normal"
 
         # Generar la imagen UNA sola vez: se usa igual en el mail y en Facebook.
-        img_path = generar_imagen_rios(datos_validos, fecha_fmt)
+        img_path = generar_imagen_rios(datos_display, fecha_fmt)
 
         try:
             enviar_email(config, asunto, cuerpo, img_path)
@@ -957,7 +1003,7 @@ def main():
             notificacion_macos("Rios - Error mail", str(e))
 
         # WhatsApp: tres mensajes para no superar el limite de caracteres
-        msg_datos = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + "".join(construir_bloque(d) + "\n" for d in datos_validos) + f"\n{FACEBOOK_PAGE_URL}"
+        msg_datos = "-Informe altura de los Rios-\nFundacion Humedales y Pastizales.\n\n" + "".join(construir_bloque(d) + "\n" for d in datos_display) + f"\n{FACEBOOK_PAGE_URL}"
         enviar_whatsapp(config, msg_datos)
         enviar_whatsapp(config, comentario)
         if bloque_clima:
