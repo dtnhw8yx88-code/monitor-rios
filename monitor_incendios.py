@@ -32,6 +32,11 @@ DEPARTAMENTOS     = "Vera, 9 de Julio, Gral. Obligado, San Justo, San Cristóbal
 # Bounding box de los 6 departamentos: W,S,E,N
 BBOX = "-63.0,-31.5,-58.5,-27.5"
 
+# Mapa base FIJO: se bajo una vez de OpenStreetMap y viaja con el proyecto como
+# imagen (no se pide en vivo, asi la nube no lo bloquea con 403). extent en EPSG:3857.
+BASEMAP_FILE = BASE_DIR / "basemap_incendios.png"
+BASEMAP_EXT  = (-7044436.526761843, -6496535.9080137005, -3757032.8142729835, -3130860.678560819)
+
 CIUDADES = {
     "Reconquista":   (-29.15, -59.65),
     "Vera":          (-29.47, -60.21),
@@ -102,19 +107,14 @@ def generar_mapa(focos, fecha_str):
     xmax, ymax = transformer.transform(E, N)
 
     fig, ax = plt.subplots(figsize=(10, 12))
+
+    # Mapa base FIJO (imagen guardada; no se pide en vivo -> la nube no lo bloquea).
+    if BASEMAP_FILE.exists():
+        ax.imshow(plt.imread(str(BASEMAP_FILE)), extent=BASEMAP_EXT, zorder=0)
+    else:
+        ax.set_facecolor("#e9f0e4")   # respaldo por si falta la imagen
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
-
-    # Fondo propio: NO usamos mapa base externo (OpenStreetMap bloquea los tiles
-    # desde la nube con error 403). Dibujamos un fondo claro y una grilla suave
-    # de referencia (lineas cada 1 grado) para ubicarse.
-    ax.set_facecolor("#e9f0e4")
-    for lon in (-62, -61, -60, -59):
-        gx, _ = transformer.transform(lon, S)
-        ax.axvline(gx, color="#ffffff", linewidth=1.0, zorder=1)
-    for lat in (-31, -30, -29, -28):
-        _, gy = transformer.transform(W, lat)
-        ax.axhline(gy, color="#ffffff", linewidth=1.0, zorder=1)
 
     # Ciudades de referencia
     for nombre, (lat, lon) in CIUDADES.items():
