@@ -88,8 +88,6 @@ def localizar_focos(focos):
 
 
 def generar_mapa(focos, fecha_str):
-    import contextily as ctx
-
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
     W, S, E, N = -63.0, -31.5, -58.5, -27.5
     xmin, ymin = transformer.transform(W, S)
@@ -98,7 +96,17 @@ def generar_mapa(focos, fecha_str):
     fig, ax = plt.subplots(figsize=(10, 12))
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
-    ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik, zoom=8, reset_extent=False)
+
+    # Fondo propio: NO usamos mapa base externo (OpenStreetMap bloquea los tiles
+    # desde la nube con error 403). Dibujamos un fondo claro y una grilla suave
+    # de referencia (lineas cada 1 grado) para ubicarse.
+    ax.set_facecolor("#e9f0e4")
+    for lon in (-62, -61, -60, -59):
+        gx, _ = transformer.transform(lon, S)
+        ax.axvline(gx, color="#ffffff", linewidth=1.0, zorder=1)
+    for lat in (-31, -30, -29, -28):
+        _, gy = transformer.transform(W, lat)
+        ax.axhline(gy, color="#ffffff", linewidth=1.0, zorder=1)
 
     # Ciudades de referencia
     for nombre, (lat, lon) in CIUDADES.items():
