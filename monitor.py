@@ -112,8 +112,15 @@ def fetch_datos(claves):
     )
     url = API_PROXY + requests.utils.quote(inner, safe="")
     resp = session.get(url, timeout=15)
+    # Error del servidor (5xx) o respuesta corrupta (no-JSON) => reintentable,
+    # igual que si no respondiera. Los 4xx no se reintentan (siguen como HTTPError).
+    if resp.status_code >= 500:
+        raise ReqConnectionError(f"Santa Fe respondio HTTP {resp.status_code}")
     resp.raise_for_status()
-    data = resp.json()
+    try:
+        data = resp.json()
+    except ValueError:
+        raise ReqConnectionError("Santa Fe devolvio una respuesta no valida (no-JSON)")
 
     # Buscar por nombre (substring) para evitar dependencia de IDs
     por_clave = {}
